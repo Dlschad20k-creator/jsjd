@@ -134,7 +134,7 @@ export class Match {
   private puTimer = 3;
   private puSeq = 1;
 
-  constructor(mapId: MapId, seed: number, players: { id: string; name: string; avatar: string; color: string }[], opts?: { duration?: number; countdown?: number }) {
+  constructor(mapId: MapId, seed: number, players: { id: string; name: string; avatar: string; color: string }[], opts?: { duration?: number; countdown?: number; startLevel?: number }) {
     this.mapId = mapId;
     this.map = MAPS[mapId];
     this.rng = mulberry32(seed ^ 0x9e3779b9);
@@ -162,7 +162,12 @@ export class Match {
     ];
     players.forEach((p, i) => {
       const s = spawns[i % 2];
-      this.players.set(p.id, this.newPlayer(p, s.x, s.z));
+      const np = this.newPlayer(p, s.x, s.z);
+      if (opts?.startLevel && opts.startLevel > 1) {
+        np.level = np.maxLevel = Math.min(MAX_LEVEL, Math.floor(opts.startLevel));
+        this.updateRadius(np);
+      }
+      this.players.set(p.id, np);
     });
   }
 

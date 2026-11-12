@@ -164,3 +164,17 @@ test('vortex swallows fitting objects in range and goes on cooldown', () => {
   m.vortex('a');
   assert.equal(a.vortexCd, cd);
 });
+
+test('leaderboard keeps the best score per player and map', async () => {
+  const { Leaderboard } = await import('../src/leaderboard');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const lb = new Leaderboard(path.join(os.tmpdir(), 'hw-lb-' + Date.now()));
+  const base = { avatar: 'bunny', level: 3, kills: 0, map: 'pink' as const, won: true, date: 0 };
+  lb.add({ ...base, name: 'A', score: 50 });
+  lb.add({ ...base, name: 'a', score: 30 });
+  lb.add({ ...base, name: 'A', score: 90 });
+  lb.add({ ...base, name: 'B', score: 70 });
+  lb.add({ ...base, name: 'Z', score: 0 });
+  assert.deepEqual(lb.top().map((e) => `${e.name}:${e.score}`), ['A:90', 'B:70']);
+});

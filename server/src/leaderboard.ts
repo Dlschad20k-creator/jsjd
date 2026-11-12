@@ -26,6 +26,13 @@ export class Leaderboard {
 
   add(e: LeaderEntry) {
     if (e.score <= 0) return;
+    // one row per player name per map: keep the best score
+    const key = (x: LeaderEntry) => x.name.toLowerCase() + '|' + x.map;
+    const prev = this.entries.findIndex((x) => key(x) === key(e));
+    if (prev >= 0) {
+      if (this.entries[prev].score >= e.score) return;
+      this.entries.splice(prev, 1);
+    }
     this.entries.push(e);
     this.entries.sort((a, b) => b.score - a.score);
     this.entries = this.entries.slice(0, MAX);

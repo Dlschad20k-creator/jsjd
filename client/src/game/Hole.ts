@@ -19,10 +19,9 @@ uniform vec3 uColor;
 uniform float uScale;
 varying float vDepth;
 void main() {
-  // walls glow faintly in player colour near the rim, fading into the void
-  float d = vDepth * uScale;
-  float glow = exp(-d * 0.9) * 0.9;
-  vec3 col = mix(vec3(0.015, 0.0, 0.03), uColor * 0.9, glow);
+  // walls glow faintly in player colour just below the rim, then fall into the void
+  float glow = exp(-vDepth * 0.45) * 0.55 + exp(-vDepth * 3.0) * 0.35;
+  vec3 col = mix(vec3(0.006, 0.0, 0.012), uColor * 0.8, glow);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -39,8 +38,8 @@ void main() {
   float arms = sin(a * 3.0 + log(r + 0.05) * 7.0 + uTime * 3.0);
   float band = smoothstep(0.2, 1.0, arms) * smoothstep(1.0, 0.35, r) * smoothstep(0.02, 0.3, r);
   float core = smoothstep(0.35, 0.0, r);
-  vec3 col = uColor * band * 0.85;
-  float alpha = band * 0.75 * (1.0 - core);
+  vec3 col = uColor * band * 0.45;
+  float alpha = band * 0.4 * (1.0 - core);
   gl_FragColor = vec4(col, alpha);
 }`;
 
@@ -55,8 +54,8 @@ void main() {
   // ring from r=0.66 (hole edge) outward, soft falloff
   float edge = 0.666;
   float g = smoothstep(1.0, edge, r) * step(edge, r);
-  g = pow(g, 2.2) * (0.55 + 0.45 * uPulse);
-  gl_FragColor = vec4(uColor * 1.6, g);
+  g = pow(g, 2.6) * (0.4 + 0.3 * uPulse);
+  gl_FragColor = vec4(uColor * 1.1, g);
 }`;
 
 const simpleVert = /* glsl */ `

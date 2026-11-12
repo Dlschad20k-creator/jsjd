@@ -244,7 +244,8 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 
 export function buildGround(layout: Layout, theme: Theme, mapId: MapId, uniforms: HoleUniforms, quality: 'high' | 'low', aniso: number) {
   const group = new THREE.Group();
-  const canvas = drawGround(layout, theme, mapId, quality === 'high' ? 4096 : 2048);
+  // 3072 stays below iOS Safari's 16.7 MP canvas limit
+  const canvas = drawGround(layout, theme, mapId, quality === 'high' ? 4096 : 3072);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = aniso;

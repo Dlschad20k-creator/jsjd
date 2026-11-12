@@ -33,6 +33,7 @@ import { buildGround, createHoleUniforms, MAX_HOLES } from './Ground';
 import { HoleView } from './Hole';
 import { Input } from './Input';
 import { Powerups } from './Powerups';
+import { buildScenery } from './Scenery';
 import { THEMES, type Theme } from './themes';
 import { World } from './World';
 
@@ -76,6 +77,7 @@ export class Engine {
   private holes = new Map<string, HoleView>();
   private holeUniforms = createHoleUniforms();
   private ground: ReturnType<typeof buildGround>;
+  private scenery: ReturnType<typeof buildScenery>;
   private input: Input;
   private theme: Theme;
   private init: WorldInit;
@@ -171,6 +173,8 @@ export class Engine {
     // content
     this.ground = buildGround(init.layout, this.theme, init.mapId, this.holeUniforms, opts.quality, Math.min(8, this.renderer.capabilities.getMaxAnisotropy()));
     this.scene.add(this.ground.group);
+    this.scenery = buildScenery(init.mapId, init.layout.size);
+    this.scene.add(this.scenery.group);
     this.world = new World(init, this.theme, true);
     this.scene.add(this.world.group);
     this.effects = new Effects(this.theme, !high);
@@ -543,16 +547,16 @@ export class Engine {
       const height = 15 + R * 5.2;
       if (!this.camInit && this.pred.init) {
         this.camTarget.set(myHole.x, 0, myHole.z);
-        this.camPos.set(myHole.x, height, myHole.z + height * 0.62);
+        this.camPos.set(myHole.x, height, myHole.z + height * 0.5);
         this.camInit = true;
       }
       this.camTarget.lerp(this.tmpV.set(myHole.x, 0, myHole.z), 1 - Math.exp(-dt * 10));
-      const want = new THREE.Vector3(this.camTarget.x, height, this.camTarget.z + height * 0.62);
+      const want = new THREE.Vector3(this.camTarget.x, height, this.camTarget.z + height * 0.5);
       // follow position tightly, zoom smoothly
       this.camPos.x += (want.x - this.camPos.x) * (1 - Math.exp(-dt * 12));
       this.camPos.z += (want.z - this.camPos.z) * (1 - Math.exp(-dt * 12));
       this.camPos.y += (want.y - this.camPos.y) * (1 - Math.exp(-dt * 3));
-      this.camPos.z += (this.camTarget.z + this.camPos.y * 0.62 - this.camPos.z) * (1 - Math.exp(-dt * 12));
+      this.camPos.z += (this.camTarget.z + this.camPos.y * 0.5 - this.camPos.z) * (1 - Math.exp(-dt * 12));
       this.camera.position.copy(this.camPos);
       if (this.shake > 0) {
         this.camera.position.x += (Math.random() - 0.5) * this.shake;
@@ -634,6 +638,7 @@ export class Engine {
     this.effects.dispose();
     this.powerups.dispose();
     this.ground.dispose();
+    this.scenery.dispose();
     for (const h of this.holes.values()) h.dispose();
     this.composer?.dispose();
     this.scene.environment?.dispose();

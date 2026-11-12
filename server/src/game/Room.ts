@@ -31,6 +31,10 @@ export interface RoomHooks {
 type IO = Server<ClientToServer, ServerToClient>;
 
 let seatSeq = 1;
+// Test/ops overrides (defaults come from shared/constants)
+const MATCH_SECONDS = Number(process.env.HW_MATCH_SECONDS) || undefined;
+const GRACE_SECONDS = Number(process.env.HW_GRACE_SECONDS) || RECONNECT_GRACE;
+const START_LEVEL = Number(process.env.HW_START_LEVEL) || undefined;
 
 export class Room {
   readonly code: string;
@@ -121,7 +125,7 @@ export class Room {
     this.match?.setConnected(seat.id, false);
     const inGame = this.phase === 'countdown' || this.phase === 'playing';
     if (this.phase === 'starting') this.toLobby();
-    const grace = inGame ? RECONNECT_GRACE * 1000 : 8000;
+    const grace = inGame ? GRACE_SECONDS * 1000 : 8000;
     seat.graceTimer = setTimeout(() => this.removeSeat(seat, 'timeout'), grace);
     this.broadcastRoom();
   }
@@ -178,6 +182,7 @@ export class Room {
       this.mapId,
       seed,
       this.seats.map((s) => ({ id: s.id, name: s.profile.name, avatar: s.profile.avatar, color: s.profile.color })),
+      { duration: MATCH_SECONDS, startLevel: START_LEVEL },
     );
     this.lastResult = null;
     for (const s of this.seats) s.rematch = false;

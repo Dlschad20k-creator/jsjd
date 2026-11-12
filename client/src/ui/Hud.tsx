@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { DASH_CD, MAX_UPGRADE, POWERUPS, PVP_RATIO, UPGRADES, UPGRADE_KINDS, VORTEX_CD, type PowerupKind } from '@shared/constants';
+import { DASH_CD, MATCH_DURATION, MAX_UPGRADE, POWERUPS, PVP_RATIO, UPGRADES, UPGRADE_KINDS, VORTEX_CD, type PowerupKind } from '@shared/constants';
 import { MAPS } from '@shared/maps';
 import type { PlayerSnap } from '@shared/protocol';
 import { gameActions, joystickState } from '../game/Input';
@@ -169,7 +169,7 @@ export function Hud() {
           {Math.ceil(hud.countdown)}
         </div>
       )}
-      {hud.phase === 'playing' && hud.timeLeft > 178.6 && <div className="countdown go">{t('go')}</div>}
+      {hud.phase === 'playing' && hud.timeLeft > MATCH_DURATION - 1.4 && <div className="countdown go">{t('go')}</div>}
 
       {me && me.dead > 0 && (
         <div className="death glass">

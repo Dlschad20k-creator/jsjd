@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { FIT_RATIO } from '@shared/constants';
 import { MAPS, type KindDef } from '@shared/maps';
 import type { WorldInit } from '@shared/protocol';
-import { B, finalize, type BuiltKind } from './assets/kit';
+import { B, detailFor, finalize, type BuiltKind } from './assets/kit';
 import { MaterialLib } from './assets/materials';
 import type { Theme } from './themes';
 
@@ -95,7 +95,7 @@ export class World {
     map.kinds.forEach((def, k) => {
       const ids = byKind[k];
       const builder = theme.models[def.id];
-      const b = new B();
+      const b = new B(detailFor(def.r));
       if (builder) builder(b);
       else b.box(1.2, 1.2, 1.2, 'pinkhot'); // should never happen: every kind has a model
       const built = finalize(b, def.r, this.matLib.get);

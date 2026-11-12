@@ -8,7 +8,7 @@
     "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --format=esm --packages=external --outfile=dist/index.js",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/match.test.ts"
   },
   "dependencies": {
     "express": "^4.21.1",

@@ -4,3 +4,5 @@ dist
 .DS_Store
 server/data/*.json
 .env
+server/.e2e-data
+smoke-out

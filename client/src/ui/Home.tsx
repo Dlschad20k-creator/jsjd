@@ -22,7 +22,10 @@ export function TopBar() {
         <span className="dot" />
         {conn === 'online' ? (
           <>
-            {stats.online} {t('online')} · {stats.rooms} {t('playing')} · {stats.waiting} {t('waitingPlayers')}
+            {stats.online} {t('online')}
+            <span className="pill-extra">
+              {' '}· {stats.rooms} {t('playing')} · {stats.waiting} {t('waitingPlayers')}
+            </span>
           </>
         ) : conn === 'connecting' ? (
           t('connecting')

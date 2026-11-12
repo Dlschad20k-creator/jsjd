@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
+  // GitHub Pages project sites live under /<repo>/ — set VITE_BASE=/<repo>/ there
+  base: process.env.VITE_BASE || '/',
   plugins: [react()],
   resolve: {
     alias: { '@shared': fileURLToPath(new URL('../shared/src', import.meta.url)) },

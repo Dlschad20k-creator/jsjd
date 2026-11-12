@@ -1,0 +1,19 @@
+# Render Blueprint — one free web service serves the built client AND the Socket.IO backend.
+# Deploy: https://dashboard.render.com/blueprints → "New Blueprint Instance" → pick this repo.
+services:
+  - type: web
+    name: hole-world
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Only needed if you host the client elsewhere (e.g. GitHub Pages): comma-separated origins
+      # - key: CORS_ORIGIN
+      #   value: https://<user>.github.io

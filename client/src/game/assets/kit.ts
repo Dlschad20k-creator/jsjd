@@ -41,8 +41,21 @@ const tmpE = new THREE.Euler();
 const tmpS = new THREE.Vector3();
 const tmpP = new THREE.Vector3();
 
+/** Tessellation level by footprint: small, numerous props get fewer segments. */
+export function detailFor(r: number) {
+  return r < 0.5 ? 0.5 : r < 1 ? 0.6 : r < 2.2 ? 0.8 : 1;
+}
+
 export class B {
   parts: Part[] = [];
+  /** 0..1 tessellation multiplier */
+  detail: number;
+  constructor(detail = 1) {
+    this.detail = detail;
+  }
+  private seg(n: number, min = 5) {
+    return Math.max(min, Math.round(n * this.detail));
+  }
   /** global offset/rotation applied to subsequent parts (for sub-assemblies) */
   private stack: THREE.Matrix4[] = [];
 
@@ -86,15 +99,15 @@ export class B {
 
   /** Rounded "pill" box via capsule-ish scaling of a sphere-capped cylinder */
   cyl(rt: number, rb: number, h: number, m: string, x = 0, y = 0, z = 0, seg = 12, o: Xf = {}) {
-    return this.add(new THREE.CylinderGeometry(rt, rb, h, seg, 1), m, x, y + h / 2, z, o);
+    return this.add(new THREE.CylinderGeometry(rt, rb, h, this.seg(seg), 1), m, x, y + h / 2, z, o);
   }
   /** Cylinder centered at (x,y,z) — useful for wheels / horizontal pieces */
   cylC(r: number, h: number, m: string, x = 0, y = 0, z = 0, seg = 12, o: Xf = {}) {
-    return this.add(new THREE.CylinderGeometry(r, r, h, seg, 1), m, x, y, z, o);
+    return this.add(new THREE.CylinderGeometry(r, r, h, this.seg(seg), 1), m, x, y, z, o);
   }
   sph(r: number, m: string, x = 0, y = 0, z = 0, o: Xf & { seg?: number; phi?: number } = {}) {
-    const seg = o.seg ?? 12;
-    const g = new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.7)), 0, Math.PI * 2, 0, o.phi ?? Math.PI);
+    const seg = this.seg(o.seg ?? 12, 6);
+    const g = new THREE.SphereGeometry(r, seg, Math.max(4, Math.round(seg * 0.6)), 0, Math.PI * 2, 0, o.phi ?? Math.PI);
     return this.add(g, m, x, y, z, o);
   }
   /** half sphere dome, base at y */
@@ -102,22 +115,22 @@ export class B {
     return this.sph(r, m, x, y, z, { ...o, phi: Math.PI / 2 });
   }
   cone(r: number, h: number, m: string, x = 0, y = 0, z = 0, seg = 12, o: Xf = {}) {
-    return this.add(new THREE.ConeGeometry(r, h, seg, 1), m, x, y + h / 2, z, o);
+    return this.add(new THREE.ConeGeometry(r, h, this.seg(seg), 1), m, x, y + h / 2, z, o);
   }
   tor(R: number, t: number, m: string, x = 0, y = 0, z = 0, o: Xf & { seg?: number; arc?: number } = {}) {
-    return this.add(new THREE.TorusGeometry(R, t, 8, o.seg ?? 20, o.arc ?? Math.PI * 2), m, x, y, z, o);
+    return this.add(new THREE.TorusGeometry(R, t, this.seg(8, 4), this.seg(o.seg ?? 20, 8), o.arc ?? Math.PI * 2), m, x, y, z, o);
   }
   cap(r: number, len: number, m: string, x = 0, y = 0, z = 0, o: Xf = {}) {
-    return this.add(new THREE.CapsuleGeometry(r, len, 4, 10), m, x, y, z, o);
+    return this.add(new THREE.CapsuleGeometry(r, len, this.detail < 0.7 ? 2 : 4, this.seg(10, 6)), m, x, y, z, o);
   }
   plane(w: number, h: number, m: string, x = 0, y = 0, z = 0, o: Xf = {}) {
     return this.add(new THREE.PlaneGeometry(w, h), m, x, y, z, o);
   }
   lathe(pts: [number, number][], m: string, x = 0, y = 0, z = 0, seg = 14, o: Xf = {}) {
-    return this.add(new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), seg), m, x, y, z, o);
+    return this.add(new THREE.LatheGeometry(pts.map(([a, b]) => new THREE.Vector2(a, b)), this.seg(seg)), m, x, y, z, o);
   }
   ico(r: number, m: string, x = 0, y = 0, z = 0, detail = 0, o: Xf = {}) {
-    return this.add(new THREE.IcosahedronGeometry(r, detail), m, x, y, z, o);
+    return this.add(new THREE.IcosahedronGeometry(r, this.detail < 0.7 ? 0 : detail), m, x, y, z, o);
   }
   oct(r: number, m: string, x = 0, y = 0, z = 0, o: Xf = {}) {
     return this.add(new THREE.OctahedronGeometry(r, 0), m, x, y, z, o);
@@ -132,7 +145,7 @@ export class B {
     s.bezierCurveTo(-1, 0.8, -0.45, 0.95, 0, 0.55);
     s.bezierCurveTo(0.45, 0.95, 1, 0.8, 1, 0.35);
     s.bezierCurveTo(1, -0.1, 0.1, -0.45, 0, -0.6);
-    const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: 2, curveSegments: 8 });
+    const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: true, bevelSize: 0.08, bevelThickness: 0.08, bevelSegments: this.detail < 0.7 ? 1 : 2, curveSegments: this.detail < 0.7 ? 4 : 8 });
     g.translate(0, 0, -depth / 2);
     g.scale(size, size, size);
     return this.add(g, m, x, y, z, o);
@@ -165,7 +178,7 @@ export class B {
   // ---- composite helpers reused across maps ----
   wheel(m: string, x: number, y: number, z: number, r: number, w: number, hub = 'chrome') {
     this.cylC(r, w, m, x, y, z, 14, { rz: Math.PI / 2 });
-    this.cylC(r * 0.55, w * 1.05, hub, x, y, z, 10, { rz: Math.PI / 2 });
+    this.cylC(r * 0.55, w * 1.05, hub, x, y, z, 8, { rz: Math.PI / 2 });
     return this;
   }
   /** Simple stylised person: legs, torso, arms, head. Returns head top y. */

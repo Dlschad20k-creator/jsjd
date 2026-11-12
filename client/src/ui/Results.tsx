@@ -74,6 +74,11 @@ export function Results() {
           </button>
         </div>
         {opp?.rematch && !me?.rematch && <div className="pulse-text">{t('oppWantsRematch')}</div>}
+        {room.phase === 'starting' && (
+          <div className="pulse-text">
+            {t('startsIn')} {room.startsIn}
+          </div>
+        )}
         {lb.length > 0 && (
           <div className="mini-lb">
             <div className="field-label">{t('topScores')}</div>

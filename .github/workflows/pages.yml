@@ -1,0 +1,34 @@
+# Optional: host the client on GitHub Pages and point it at a separately hosted server.
+# 1) Settings → Pages → Source: "GitHub Actions"
+# 2) Settings → Secrets and variables → Actions → Variables: SERVER_URL = https://<your-server>.onrender.com
+# 3) On the server set CORS_ORIGIN=https://<user>.github.io
+name: Deploy client to GitHub Pages
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w client
+        env:
+          VITE_SERVER_URL: ${{ vars.SERVER_URL }}
+          VITE_BASE: /${{ github.event.repository.name }}/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
