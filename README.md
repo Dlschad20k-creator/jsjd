@@ -1,5 +1,7 @@
 # Hole World – Ultimate Multiplayer
 
+> This repo also contains **[Funkfoto](funkfoto/)**: a website that sends photos between phones by sound or vibration.
+
 A real-time **1v1 browser multiplayer** game: you are a black hole that swallows a whole city. Grow by eating
 objects, chain combos, grab power-ups, pick upgrades — and once you are bigger than your rival, **swallow
 them**. The victim respawns at level 1; the survivor keeps everything. Highest score after 3 minutes wins.

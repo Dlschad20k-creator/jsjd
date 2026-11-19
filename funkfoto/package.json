@@ -1,0 +1,1 @@
+{ "name": "funkfoto", "private": true, "type": "module", "scripts": { "test": "node test/run-all.mjs" } }
