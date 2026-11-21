@@ -1,0 +1,11 @@
+[Unit]
+Description=AURA KINO – Update jede Nacht um 4 Uhr
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=10min
+# War die Box um 4 Uhr aus, wird das Update nach dem Einschalten nachgeholt
+Persistent=true
+
+[Install]
+WantedBy=timers.target

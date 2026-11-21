@@ -1,0 +1,10 @@
+#!/bin/sh
+# Kurzbefehl: "kino add Dune", "kino stats" … läuft immer als Benutzer "aura"
+export AURA_DATA_DIR=/var/lib/aura-kino
+if [ "$(id -un)" = "aura" ]; then
+  exec /usr/bin/python3 /opt/aura-kino/kino.py "$@"
+elif [ "$(id -u)" = "0" ]; then
+  exec runuser -u aura -- env AURA_DATA_DIR=/var/lib/aura-kino /usr/bin/python3 /opt/aura-kino/kino.py "$@"
+else
+  exec sudo -u aura env AURA_DATA_DIR=/var/lib/aura-kino /usr/bin/python3 /opt/aura-kino/kino.py "$@"
+fi
