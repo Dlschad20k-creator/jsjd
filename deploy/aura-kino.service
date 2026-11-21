@@ -1,0 +1,27 @@
+[Unit]
+Description=AURA KINO – privates Filmbuch (Webserver)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aura
+Group=aura
+WorkingDirectory=/opt/aura-kino
+Environment=AURA_DATA_DIR=/var/lib/aura-kino
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/aura-kino/server.py
+Restart=always
+RestartSec=3
+# Absicherung
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/aura-kino
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

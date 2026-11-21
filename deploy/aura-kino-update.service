@@ -1,0 +1,21 @@
+[Unit]
+Description=AURA KINO – tägliches Backup + Film-Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=aura
+Group=aura
+WorkingDirectory=/opt/aura-kino
+Environment=AURA_DATA_DIR=/var/lib/aura-kino
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/aura-kino/kino.py daily --leise
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3h
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/aura-kino
