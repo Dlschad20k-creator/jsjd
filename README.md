@@ -9,7 +9,7 @@ Filme von TMDB, passend zu deinem Geschmack (Thriller, Psychothriller, Horror, A
 ## Installation auf der Box
 ```bash
 sudo apt-get install -y git python3
-sudo git clone https://github.com/dlschad20k-creator/jsjd.git /opt/aura-kino
+sudo git clone -b claude/install-telegram-plugin-3ci2ew https://github.com/dlschad20k-creator/jsjd.git /opt/aura-kino
 cd /opt/aura-kino && sudo ./deploy/install.sh
 ```
 Das Skript fragt nach deinem TMDB-Token (themoviedb.org → Einstellungen → API → „API Read Access Token“),
