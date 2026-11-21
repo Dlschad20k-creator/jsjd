@@ -78,6 +78,9 @@ def focus_themes():
     return out
 
 
+# Bilder lokal speichern (Box: ja). Auf GitHub (statische Seite) nein – dort direkt von image.tmdb.org.
+DOWNLOAD_IMAGES = os.environ.get("AURA_IMAGES", "1") not in ("0", "false", "nein")
+
 CATALOG_LIMIT = int(os.environ.get("AURA_CATALOG_LIMIT", "1000"))
 BACKUP_KEEP = int(os.environ.get("AURA_BACKUP_KEEP", "14"))
 

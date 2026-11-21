@@ -6,7 +6,28 @@ Filme von TMDB, passend zu deinem Geschmack (Thriller, Psychothriller, Horror, A
 - Python 3 (nur Standardbibliothek) + SQLite, Frontend ohne Framework/Build, als PWA auf dem iPhone-Home-Bildschirm
 - Läuft auf der Armbian-Box, erreichbar nur im Heimnetz und über Tailscale
 
-## Installation auf der Box
+## Variante A: Kostenlos auf GitHub (ohne Box)
+Die App läuft auf **GitHub Pages** unter `https://dlschad20k-creator.github.io/jsjd/`.
+**GitHub Actions** holt jede Nacht (ca. 04:00) neue Filme von TMDB und veröffentlicht die Seite neu.
+Deine persönlichen Daten liegen auf dem iPhone und – verschlüsselt übertragen – in einem **privaten** Repo
+`aura-kino-daten` (jede Änderung = eine Version, nichts geht verloren). Im öffentlichen Repo liegen nur Code
+und öffentliche TMDB-Katalogdaten.
+
+Einmalig einrichten (je ein Klick in GitHub):
+1. **TMDB-Token als Secret:** [Settings → Secrets → Actions → New secret](https://github.com/Dlschad20k-creator/jsjd/settings/secrets/actions/new),
+   Name `TMDB_READ_TOKEN`, Wert = dein „API Read Access Token“.
+2. **Pages einschalten:** [Settings → Pages](https://github.com/Dlschad20k-creator/jsjd/settings/pages) → *Source*: **GitHub Actions**.
+3. **Erster Lauf:** [Actions → AURA KINO → Run workflow](https://github.com/Dlschad20k-creator/jsjd/actions/workflows/aura-kino.yml)
+   (baut den Katalog mit bis zu 1000 Filmen, ca. 5 Minuten).
+4. **Privates Daten-Repo:** [neues Repo `aura-kino-daten`, privat](https://github.com/new?name=aura-kino-daten&visibility=private).
+5. **Token fürs iPhone:** [Fine-grained Token](https://github.com/settings/personal-access-tokens/new) → *Only select repositories*:
+   `aura-kino-daten` und `jsjd` → Permissions: **Contents: Read and write**, **Actions: Read and write**.
+   In der App unter **Mehr → GitHub-Sync** eintragen. (Ohne Token funktioniert alles, die Daten bleiben dann nur auf dem Gerät.)
+
+Filme per Knopf hinzufügen: in der App suchen → „… hinzufügen lassen“, oder unter Actions → *Run workflow*
+mit `aktion=add` / `aktion=import` (Genre, Thema, Jahre, Anzahl).
+
+## Variante B: Installation auf der Box
 ```bash
 sudo apt-get install -y git python3
 sudo git clone https://github.com/dlschad20k-creator/jsjd.git /opt/aura-kino
