@@ -45,8 +45,13 @@ const I = {
 };
 
 /* ======================================================= API */
+const STATIC = !!(window.AuraLocal && window.AuraLocal.enabled);
 const API = {
   async req(method, path, body) {
+    if (STATIC) {
+      try { return await window.AuraLocal.handle(method, path, body || {}); }
+      catch (e) { if (e.status === 401) showLock(); throw e; }
+    }
     const opts = { method, headers: {}, credentials: "same-origin" };
     if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
     let res;
@@ -153,7 +158,7 @@ function emptyHTML(icon, title, text, action = "") {
 
 function footHTML() {
   return `<footer class="foot wrap">
-    <a href="https://www.themoviedb.org" target="_blank" rel="noopener"><img src="/static/icons/tmdb.svg" alt="TMDB" width="120" height="14"></a>
+    <a href="https://www.themoviedb.org" target="_blank" rel="noopener"><img src="static/icons/tmdb.svg" alt="TMDB" width="120" height="14"></a>
     <div>Diese App nutzt die TMDB-API, ist aber nicht von TMDB unterstützt oder zertifiziert.</div>
     <div>Streaming-Daten: JustWatch</div>
   </footer>`;
@@ -231,16 +236,16 @@ function goBack() {
 
 /* ======================================================= Entdecken */
 route(/^\/$/, async ({ isCurrent }) => {
-  setView(`<header class="page-head wrap"><div class="brand"><img class="brand-mark" src="/static/icons/icon-192.png" alt=""><span class="brand-name">AURA <b>KINO</b></span></div>
+  setView(`<header class="page-head wrap"><div class="brand"><img class="brand-mark" src="static/icons/icon-192.png" alt=""><span class="brand-name">AURA <b>KINO</b></span></div>
     <a class="icon-btn" href="#/suche" aria-label="Suche">${I.search}</a></header>${skeletonRows(3)}`);
   const data = await API.get("/api/home");
   if (!isCurrent()) return;
   if (!data.rows.length) {
-    setView(`<header class="page-head wrap"><div class="brand"><img class="brand-mark" src="/static/icons/icon-192.png" alt=""><span class="brand-name">AURA <b>KINO</b></span></div></header>
-      <div class="wrap">${emptyHTML(I.film, "Noch keine Filme", "Der Katalog ist leer. Starte auf der Box den Erst-Import mit <code>python3 kino.py init</code>.")}</div>${footHTML()}`);
+    setView(`<header class="page-head wrap"><div class="brand"><img class="brand-mark" src="static/icons/icon-192.png" alt=""><span class="brand-name">AURA <b>KINO</b></span></div></header>
+      <div class="wrap">${emptyHTML(I.film, "Noch keine Filme", STATIC ? "Der Katalog wird gerade auf GitHub gebaut. Schau in ein paar Minuten wieder rein." : "Der Katalog ist leer. Starte auf der Box den Erst-Import mit <code>python3 kino.py init</code>.")}</div>${footHTML()}`);
     return;
   }
-  setView(`<header class="page-head wrap"><div class="brand"><img class="brand-mark" src="/static/icons/icon-192.png" alt=""><span class="brand-name">AURA <b>KINO</b></span></div>
+  setView(`<header class="page-head wrap"><div class="brand"><img class="brand-mark" src="static/icons/icon-192.png" alt=""><span class="brand-name">AURA <b>KINO</b></span></div>
     <a class="icon-btn" href="#/suche" aria-label="Suche">${I.search}</a></header>
     ${data.rows.map(railHTML).join("")}${footHTML()}`);
 }, "entdecken");
@@ -309,12 +314,25 @@ route(/^\/suche$/, async ({ query }) => {
       else $(".grid", $("#res")).insertAdjacentHTML("beforeend", html);
       offset += data.items.length;
       $("#count").textContent = total ? `${total.toLocaleString("de-DE")} ${total === 1 ? "Film" : "Filme"} im Katalog` : "";
+      if (reset && st.q && st.q.trim().length >= 2 && m.static) {
+        $("#tmdb").innerHTML = `<div class="panel" style="margin:${total ? 26 : 0}px 0 0;text-align:center">
+          <p style="margin:0 0 12px">${total ? "Nicht dabei?" : `„${esc(st.q)}“ ist nicht im Katalog.`}</p>
+          ${m.can_request ? `<button class="btn primary" id="req">${I.plus} „${esc(st.q)}“ hinzufügen lassen</button>
+            <p class="dim small" style="margin:10px 0 0">GitHub sucht den Film bei TMDB und fügt ihn hinzu (ca. 2–3 Minuten).</p>`
+          : `<p class="muted small" style="margin:0">Zum Anfordern unter <a class="link" href="#/mehr" style="min-height:0">Mehr → GitHub-Sync</a> einen Token eintragen – oder <a class="link" href="#/eigener-film" style="min-height:0">eigenen Film anlegen</a>.</p>`}</div>`;
+        const rq = $("#req");
+        if (rq) rq.onclick = async () => {
+          rq.disabled = true;
+          try { await API.post("/api/request", { title: st.q }); rq.innerHTML = `${I.check} Angefordert`; toast("Angefordert – erscheint in ein paar Minuten unter „Neu dazugekommen“"); }
+          catch (e) { fail(e); rq.disabled = false; }
+        };
+      }
       if (reset && st.q && st.q.trim().length >= 2 && m.tmdb) {
         if (!total) tmdbSearch(st.q, true);
         else $("#tmdb").innerHTML = `<div style="text-align:center;margin:26px 0"><button class="btn ghost" id="tmdbbtn">${I.search} Auch bei TMDB suchen</button></div>`;
         const b = $("#tmdbbtn"); if (b) b.onclick = () => tmdbSearch(st.q, false);
       }
-      if (reset && !total && !(st.q && m.tmdb)) {
+      if (reset && !total && !(st.q && (m.tmdb || m.static))) {
         $("#res").innerHTML = emptyHTML(I.search, "Nichts gefunden", st.q ? `Kein Film passt zu „${esc(st.q)}“.` : "Kein Film passt zu diesen Filtern.");
       }
     } catch (e) { if (my === seq) $("#res").innerHTML = emptyHTML(I.search, "Suche fehlgeschlagen", esc(e.message)); }
@@ -436,8 +454,8 @@ route(/^\/geschaut$/, async ({ isCurrent }) => {
 const PROV_LABEL = { flatrate: "Im Abo", free: "Kostenlos", ads: "Mit Werbung", rent: "Leihen", buy: "Kaufen" };
 const GOOF_CAT = { anschluss: "Anschlussfehler", logik: "Logikfehler", requisite: "Requisite", ton: "Ton", sonstiges: "Sonstiges" };
 
-route(/^\/film\/(\d+)$/, async ({ params, isCurrent }) => {
-  const id = Number(params[0]);
+route(/^\/film\/([\w-]+)$/, async ({ params, isCurrent }) => {
+  const id = params[0];
   setView(`<div class="hero"><div class="hero-nav"><button class="icon-btn glass" data-back aria-label="Zurück">${I.back}</button></div></div>
     <div class="wrap"><div class="d-top"><div class="skel" style="aspect-ratio:2/3"></div><div><div class="skel" style="height:28px;width:80%"></div><div class="skel" style="height:16px;width:50%;margin-top:10px"></div></div></div></div>`);
   $("[data-back]").onclick = goBack;
@@ -702,6 +720,7 @@ function wireNote(f) {
     if (text === last) return;
     st.className = "save-state"; st.textContent = "Speichert …";
     try {
+      if (keepalive && STATIC) { await API.put(`/api/movie/${f.id}/note`, { text }); last = text; return; }
       if (keepalive) {
         fetch(`/api/movie/${f.id}/note`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }), keepalive: true, credentials: "same-origin" });
         last = text; return;
@@ -772,8 +791,8 @@ function wireGoofs(f) {
 }
 
 /* ======================================================= Eigener Film */
-route(/^\/eigener-film(?:\/(\d+))?$/, async ({ params, isCurrent }) => {
-  const id = params[0] ? Number(params[0]) : null;
+route(/^\/eigener-film(?:\/([\w-]+))?$/, async ({ params, isCurrent }) => {
+  const id = params[0] || null;
   const m = await meta();
   const f = id ? await API.get(`/api/movie/${id}`) : null;
   if (!isCurrent()) return;
@@ -799,7 +818,7 @@ route(/^\/eigener-film(?:\/(\d+))?$/, async ({ params, isCurrent }) => {
   $("#cover").onchange = async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
-      coverData = await resizeImage(file, 780);
+      coverData = await resizeImage(file, STATIC ? 480 : 780);
       $("#cv").innerHTML = posterHTML({ title: "", poster: coverData });
     } catch (err) { fail(new Error("Bild konnte nicht gelesen werden")); }
   };
@@ -869,13 +888,17 @@ route(/^\/mehr$/, async ({ isCurrent }) => {
       <a href="#/eigener-film">${I.plus}<span class="grow">Eigenen Film anlegen</span><span class="chev">${I.chev}</span></a>
     </div></div>
 
+    ${STATIC ? `<div class="section"><h2>GitHub-Sync</h2><div class="panel" id="ghsync"></div>
+      <p class="dim small">Deine Merkliste, Bewertungen, Notizen und Filmfehler liegen auf diesem Gerät und – mit Token – in deinem <b>privaten</b> Repo. Jede Änderung ist dort eine eigene Version.</p></div>` : ""}
+
     <div class="section"><h2>Update-Status</h2><div class="panel" id="upd"></div></div>
 
     <div class="section"><h2>Backup</h2><div class="panel menu">
-      <button id="bk">${I.shield}<span class="grow">Backup jetzt anlegen</span><span class="dim small" id="bkinfo"></span></button>
-      <a href="/api/export" download>${I.download}<span class="grow">Export als JSON</span><span class="chev">${I.chev}</span></a>
+      <button id="bk">${I.shield}<span class="grow">${STATIC ? "Jetzt synchronisieren" : "Backup jetzt anlegen"}</span><span class="dim small" id="bkinfo"></span></button>
+      ${STATIC ? `<button id="exp">${I.download}<span class="grow">Export als JSON</span><span class="chev">${I.chev}</span></button>`
+        : `<a href="/api/export" download>${I.download}<span class="grow">Export als JSON</span><span class="chev">${I.chev}</span></a>`}
       <label style="display:flex;align-items:center;gap:14px;min-height:54px;border-top:1px solid var(--line);font-weight:550;cursor:pointer">${I.upload}<span class="grow">Import aus JSON</span><input type="file" id="imp" accept="application/json,.json" class="sr"></label>
-    </div><p class="dim small">Automatisch: jede Nacht ein Backup, die letzten 14 bleiben erhalten.</p></div>
+    </div><p class="dim small">${STATIC ? "Automatisch: jede Änderung landet als Version in deinem privaten GitHub-Repo." : "Automatisch: jede Nacht ein Backup, die letzten 14 bleiben erhalten."}</p></div>
 
     <div class="section"><h2>Sicherheit</h2><div class="panel">
       <label class="toggle"><span style="display:flex;gap:12px;align-items:center">${I.lock} PIN beim Öffnen</span><span class="switch"><input type="checkbox" id="pin" ${m.pin_enabled ? "checked" : ""}><i></i></span></label>
@@ -903,31 +926,72 @@ route(/^\/mehr$/, async ({ isCurrent }) => {
       <div style="display:flex;align-items:center;gap:10px"><span class="dot ${u.running ? "run" : last && last.status === "error" ? "err" : ""}"></span>
         <div class="grow"><b>${u.running ? "Update läuft …" : last ? `Letztes Update ${fmtDateTime(last.finished_at || last.started_at)}` : "Noch kein Update"}</b>
         <div class="muted small">${u.counts.catalog} / ${u.limit} Katalogfilme · ${u.counts.mine} deine Filme${last ? ` · zuletzt +${last.added} neu, ${last.refreshed} aktualisiert` : ""}</div></div></div>
-      <button class="btn block" id="upnow" style="margin-top:14px" ${u.running || !m.tmdb ? "disabled" : ""}>${I.refresh} Jetzt aktualisieren</button>
-      ${m.tmdb ? "" : '<p class="muted small">Kein TMDB-Key eingerichtet (.env auf der Box).</p>'}
+      <button class="btn block" id="upnow" style="margin-top:14px" ${u.running || !(m.tmdb || m.can_request) ? "disabled" : ""}>${I.refresh} Jetzt aktualisieren</button>
+      ${STATIC ? (m.can_request ? `<p class="dim small">Startet das Update auf GitHub (ca. 3–5 Min.). Automatisch jede Nacht gegen 4 Uhr.${u.github && u.github.url ? ` <a class="link" href="${esc(u.github.url)}" target="_blank" rel="noopener" style="min-height:0;font-size:12px">Letzter Lauf ${I.ext}</a>` : ""}</p>` : '<p class="muted small">Zum Starten per Knopf einen GitHub-Token eintragen (oben). Automatisch läuft es jede Nacht gegen 4 Uhr.</p>')
+        : (m.tmdb ? "" : '<p class="muted small">Kein TMDB-Key eingerichtet (.env auf der Box).</p>')}
       <div class="list runs" style="margin-top:10px">${u.runs.slice(0, 5).map((r) => `<div class="li"><span class="dot ${r.status === "error" ? "err" : r.status === "running" ? "run" : ""}"></span>
         <div class="grow">${{ update: "Update", initial: "Erst-Import", import: "Import", add: "Hinzugefügt" }[r.kind] || r.kind} · ${fmtDateTime(r.started_at)}</div>
         <span class="muted small">+${r.added}${r.removed ? ` −${r.removed}` : ""}${r.errors ? ` · ${r.errors} Fehler` : ""}</span></div>`).join("")}</div>`;
     const b = $("#upnow");
     if (b) b.onclick = async () => {
-      try { await API.post("/api/update"); toast("Update gestartet – das dauert ein paar Minuten"); poll(); } catch (e) { fail(e); }
+      try { await API.post("/api/update"); toast("Update gestartet – das dauert ein paar Minuten"); setTimeout(poll, STATIC ? 5000 : 0); } catch (e) { fail(e); }
     };
   };
   let timer = null;
   const poll = async () => {
     clearTimeout(timer);
-    try { const x = await API.get("/api/update"); if (!isCurrent()) return; drawUpd(x); if (x.running) timer = setTimeout(poll, 4000); else if (u.running) toast("Update fertig"); u.running = x.running; }
+    try {
+      const x = await API.get("/api/update"); if (!isCurrent()) return; drawUpd(x);
+      if (x.running) timer = setTimeout(poll, STATIC ? 15000 : 4000);
+      else if (u.running) { toast("Update fertig"); if (STATIC) { await window.AuraLocal.reloadCatalog(); META = null; } }
+      u.running = x.running;
+    }
     catch (e) { /* offline */ }
   };
   onLeave(() => clearTimeout(timer));
   drawUpd(u);
   if (u.running) poll();
-  const lastBk = u.backups[0];
+  const lastBk = (u.backups || [])[0];
   $("#bkinfo").textContent = lastBk ? fmtDateTime(lastBk.time) : "";
 
   $("#bk").onclick = async () => {
-    try { const r = await API.post("/api/backup"); $("#bkinfo").textContent = fmtDateTime(r.backups[0].time); toast("Backup angelegt"); } catch (e) { fail(e); }
+    try {
+      const r = await API.post("/api/backup");
+      if (STATIC) { toast("Synchronisiert"); drawSync(); return; }
+      $("#bkinfo").textContent = fmtDateTime(r.backups[0].time); toast("Backup angelegt");
+    } catch (e) { fail(e); }
   };
+  const exp = $("#exp");
+  if (exp) exp.onclick = async () => {
+    const data = await API.get("/api/export");
+    const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `aura-kino-${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  };
+  // GitHub-Sync
+  const drawSync = () => {
+    const box = $("#ghsync"); if (!box) return;
+    const i = window.AuraLocal.syncInfo();
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:10px"><span class="dot ${i.error ? "err" : i.busy ? "run" : i.configured ? "" : "err"}"></span>
+      <div class="grow"><b>${i.configured ? (i.error ? "Sync-Problem" : i.last ? "Synchronisiert " + fmtDateTime(i.last) : "Verbunden") : "Nur auf diesem Gerät gespeichert"}</b>
+      <div class="muted small">${i.error ? esc(i.error) : i.configured ? "Repo: " + esc(i.repo) : "Trag einen Token ein, damit nichts verloren geht."}</div></div></div>
+      <div class="form-grid" style="margin-top:14px">
+        <label class="field"><span>Privates Daten-Repo</span><input class="input" id="ghrepo" value="${esc(i.repo)}" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
+        <label class="field"><span>GitHub-Token ${i.configured ? "(gespeichert)" : ""}</span><input class="input" id="ghtok" type="password" placeholder="${i.configured ? "••••••••  (leer lassen = behalten)" : "github_pat_…"}" autocomplete="off"></label>
+        <div class="two"><button class="btn" id="ghoff" ${i.configured ? "" : "disabled"}>Trennen</button><button class="btn primary" id="ghsave">Verbinden</button></div>
+      </div>`;
+    $("#ghsave").onclick = async () => {
+      const tok = $("#ghtok").value.trim(), repo = $("#ghrepo").value.trim();
+      if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return toast("Repo bitte als name/repo angeben", { error: true });
+      window.AuraLocal.setGitHub(tok || localStorage.getItem("aura.gh_token"), repo);
+      try { await window.AuraLocal.sync(); META = null; toast("Mit GitHub verbunden"); render(); return; } catch (e) { fail(e); }
+      drawSync();
+    };
+    $("#ghoff").onclick = () => { window.AuraLocal.setGitHub(null, null); META = null; toast("Getrennt – Daten bleiben auf dem Gerät"); render(); };
+  };
+  if (STATIC) { drawSync(); const onSync = () => { if (isCurrent()) drawSync(); }; window.addEventListener("aura-sync", onSync); onLeave(() => window.removeEventListener("aura-sync", onSync)); }
   $("#imp").onchange = async (e) => {
     const file = e.target.files[0]; if (!file) return;
     try {
@@ -988,7 +1052,7 @@ function showLock() {
   let pin = "";
   const el = document.createElement("div");
   el.id = "lock";
-  el.innerHTML = `<img src="/static/icons/icon-192.png" alt="" style="width:64px;height:64px;border-radius:16px">
+  el.innerHTML = `<img src="static/icons/icon-192.png" alt="" style="width:64px;height:64px;border-radius:16px">
     <div style="text-align:center"><h2>AURA KINO</h2><p class="muted" style="margin:6px 0 0" id="lmsg">PIN eingeben</p></div>
     <div class="pin-dots" id="dots"></div>
     <div class="keypad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button data-k="${n}">${n}</button>`).join("")}<button class="txt" data-k="del">Löschen</button><button data-k="0">0</button><button class="txt" data-k="ok">OK</button></div>`;
@@ -998,11 +1062,15 @@ function showLock() {
   const submit = async () => {
     if (pin.length < 4) return;
     try {
+      if (STATIC) {
+        await window.AuraLocal.handle("POST", "/api/auth", { pin });
+        el.remove(); lockShown = false; document.removeEventListener("keydown", onKey); render(); return;
+      }
       const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }), credentials: "same-origin" });
       if (r.ok) { el.remove(); lockShown = false; document.removeEventListener("keydown", onKey); render(); return; }
       const d = await r.json().catch(() => ({}));
       $("#lmsg").textContent = d.error || "Falsche PIN";
-    } catch (e) { $("#lmsg").textContent = "Server nicht erreichbar"; }
+    } catch (e) { $("#lmsg").textContent = STATIC ? (e.message || "Falsche PIN") : "Server nicht erreichbar"; }
     pin = ""; dots(); $("#dots").classList.add("shake"); setTimeout(() => $("#dots")?.classList.remove("shake"), 400);
   };
   const press = (k) => {
@@ -1023,13 +1091,21 @@ function offlinePill() {
   if (!navigator.onLine) { if (!p) { p = document.createElement("div"); p.className = "offline-pill"; p.textContent = "Offline – gespeicherte Ansicht"; document.body.appendChild(p); } }
   else if (p) p.remove();
 }
+// GitHub-Modus: kamen beim Sync neue Daten von einem anderen Gerät, aktuelle Seite neu zeichnen
+window.addEventListener("aura-sync", (e) => {
+  if (!e.detail || !e.detail.changed || $(".sheet-bg") || lockShown) return;
+  const a = document.activeElement;
+  if (a && a.matches("textarea, input")) return;   // nicht beim Tippen stören
+  const y = window.scrollY;
+  render().then(() => window.scrollTo(0, y));
+});
 window.addEventListener("online", offlinePill);
 window.addEventListener("offline", offlinePill);
 
 async function start() {
   offlinePill();
   try {
-    const a = await fetch("/api/auth", { credentials: "same-origin" }).then((r) => r.json());
+    const a = STATIC ? await API.get("/api/auth") : await fetch("/api/auth", { credentials: "same-origin" }).then((r) => r.json());
     if (a.pin_enabled && !a.authed) { showLock(); return; }
   } catch (e) { /* offline: Service Worker liefert gecachte Daten */ }
   await render();
@@ -1037,6 +1113,6 @@ async function start() {
 }
 
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {}));
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {}));
 }
 start().finally(() => setTimeout(() => $("#splash")?.classList.add("hide"), 400));

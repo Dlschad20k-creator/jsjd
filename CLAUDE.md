@@ -3,6 +3,26 @@
 Private Film-Web-App (Filmbuch): Merkliste, Filmtagebuch, eigene Bewertungen/Notizen/Filmfehler,
 Katalog mit automatischen Filmen von TMDB. Läuft auf einer Armbian-Box, Zugriff per iPhone über LAN/Tailscale.
 
+## Zwei Betriebsarten (gleicher Code, gleiche Oberfläche)
+1. **GitHub (kostenlos, Hauptvariante):** GitHub Pages zeigt die App, GitHub Actions (`.github/workflows/aura-kino.yml`)
+   pflegt den Katalog. Die Katalog-DB liegt zwischen den Läufen im Branch `katalog-daten` (nur TMDB-Daten).
+   Im Browser übernimmt `web/local.js` die Rolle des Servers; persönliche Daten: IndexedDB + Sync in das **private**
+   Repo `<owner>/aura-kino-daten` (Datei `aura-daten.json`) per Token, den der Nutzer in „Mehr → GitHub-Sync“ einträgt.
+2. **Box (Armbian):** `server.py` + SQLite + systemd (siehe unten). Persönliche Daten in der SQLite-DB.
+
+### GitHub-Variante bedienen
+- Filme hinzufügen/importieren = Workflow starten (`aura-kino.yml`, Branch `main`) mit Inputs:
+  `aktion=add` + `titel="Prisoners"` (oder `tmdb=146233`) · `aktion=import` + `genre=horror` / `liste="psychological thriller"`,
+  `von`, `bis`, `anzahl` · `aktion=update` · `aktion=init` · `aktion=deploy` (nur Seite neu bauen).
+  Für Claude Code: GitHub-MCP `actions_run_trigger` (method `run_workflow`, workflow `aura-kino.yml`, ref `main`, inputs wie oben).
+  „mach 50 neue Horrorfilme rein“ → `aktion=import, genre=horror, anzahl=50`.
+- Benötigt: Secret `TMDB_READ_TOKEN` (oder `TMDB_API_KEY`), Pages-Quelle „GitHub Actions“.
+- Fehler finden: Actions-Tab → letzter Lauf „AURA KINO“ (Zusammenfassung zeigt `kino stats`); `update.log` liegt im Branch `katalog-daten`.
+- Persönliche Daten nie ins öffentliche Repo schreiben. `aura/static_export.py` exportiert ausschließlich Katalogdaten.
+- Nach Änderungen an `web/` → in `web/sw.js` `VERSION` hochzählen; Push auf `main` baut die Seite automatisch neu.
+- Lokal testen: `python3 kino.py export-static /tmp/pages/jsjd` + `python3 -m http.server -d /tmp/pages` →
+  `http://127.0.0.1:8000/jsjd/`; Sync-Simulator `python3 tests/mock_github.py 8600`, Test `node tests/ui-static.js …`.
+
 ## Wo liegt was (auf der Box)
 | Was | Pfad |
 |---|---|

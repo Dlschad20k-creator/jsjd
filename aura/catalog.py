@@ -152,8 +152,10 @@ MOVIE_FIELDS = (
 )
 
 
-def save_movie(conn, m, run_id=None, keep=False, download_images=True):
+def save_movie(conn, m, run_id=None, keep=False, download_images=None):
     """Legt einen Film an oder aktualisiert ihn. Gibt (movie_id, neu?) zurück."""
+    if download_images is None:
+        download_images = config.DOWNLOAD_IMAGES
     poster_local = backdrop_local = None
     if download_images:
         poster_local, backdrop_local = images.cache_movie_images(m["poster_path"], m["backdrop_path"])
@@ -724,7 +726,7 @@ def _ensure_meta(conn, api):
             conn.execute("INSERT INTO genres(id, name) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET name=excluded.name", (g["id"], g["name"]))
         for p in api.providers():
             prio = (p.get("display_priorities") or {}).get(config.REGION, p.get("display_priority"))
-            logo = images.download(images.LOGO_SIZE, p.get("logo_path"))
+            logo = images.download(images.LOGO_SIZE, p.get("logo_path")) if config.DOWNLOAD_IMAGES else None
             conn.execute(
                 "INSERT INTO providers(id, name, logo_path, logo_local, priority) VALUES(?,?,?,?,?)"
                 " ON CONFLICT(id) DO UPDATE SET name=excluded.name, logo_path=excluded.logo_path,"

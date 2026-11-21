@@ -1,0 +1,178 @@
+# AURA KINO auf GitHub: Katalog von TMDB aktualisieren und die App auf GitHub Pages veröffentlichen.
+# - jede Nacht ca. 04:00 (deutsche Winterzeit): Update
+# - per Knopf in der App oder unter "Actions → AURA KINO → Run workflow": update / add / import / init / deploy
+# - bei Änderungen am Code: Seite neu bauen (ohne TMDB-Abruf)
+# Benötigt das Repository-Secret TMDB_READ_TOKEN (oder TMDB_API_KEY) und Pages-Quelle "GitHub Actions".
+name: AURA KINO
+
+on:
+  schedule:
+    - cron: "7 3 * * *"
+  workflow_dispatch:
+    inputs:
+      aktion:
+        description: "Was soll passieren?"
+        type: choice
+        options: [update, add, import, init, deploy]
+        default: update
+      titel:
+        description: "add: Filmtitel"
+        required: false
+        default: ""
+      tmdb:
+        description: "add: TMDB-ID (statt Titel)"
+        required: false
+        default: ""
+      genre:
+        description: "import: Genre (z. B. horror)"
+        required: false
+        default: ""
+      liste:
+        description: "import: Thema/Keyword (englisch, z. B. psychological thriller)"
+        required: false
+        default: ""
+      von:
+        description: "import: Jahr von"
+        required: false
+        default: ""
+      bis:
+        description: "import: Jahr bis"
+        required: false
+        default: ""
+      anzahl:
+        description: "import: Anzahl neuer Filme"
+        required: false
+        default: "50"
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "aura/**"
+      - "kino.py"
+      - ".github/workflows/aura-kino.yml"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: aura-kino
+  cancel-in-progress: false
+
+jobs:
+  katalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      AURA_DATA_DIR: /tmp/aura-data
+      AURA_IMAGES: "0"
+      PYTHONUNBUFFERED: "1"
+      TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      IN_AKTION: ${{ inputs.aktion }}
+      IN_TITEL: ${{ inputs.titel }}
+      IN_TMDB: ${{ inputs.tmdb }}
+      IN_GENRE: ${{ inputs.genre }}
+      IN_LISTE: ${{ inputs.liste }}
+      IN_VON: ${{ inputs.von }}
+      IN_BIS: ${{ inputs.bis }}
+      IN_ANZAHL: ${{ inputs.anzahl }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Katalog-Datenbank vom letzten Lauf holen
+        run: |
+          mkdir -p "$AURA_DATA_DIR"
+          if git ls-remote --exit-code --heads origin katalog-daten >/dev/null 2>&1; then
+            git fetch --depth 1 origin katalog-daten
+            git show FETCH_HEAD:aura.db > "$AURA_DATA_DIR/aura.db"
+            git show FETCH_HEAD:update.log > "$AURA_DATA_DIR/update.log.prev" 2>/dev/null || true
+            mkdir -p "$AURA_DATA_DIR/logs"
+            [ -f "$AURA_DATA_DIR/update.log.prev" ] && mv "$AURA_DATA_DIR/update.log.prev" "$AURA_DATA_DIR/logs/update.log"
+            echo "Datenbank geladen: $(du -h "$AURA_DATA_DIR/aura.db" | cut -f1)"
+          else
+            echo "Noch keine Katalog-Datenbank – erster Lauf."
+          fi
+
+      - name: Aktion bestimmen
+        id: plan
+        run: |
+          A="$IN_AKTION"
+          case "$GITHUB_EVENT_NAME" in
+            schedule) A=update ;;
+            push) A=deploy ;;
+          esac
+          [ -z "$A" ] && A=update
+          HAS_KEY=no
+          { [ -n "$TMDB_READ_TOKEN" ] || [ -n "$TMDB_API_KEY" ]; } && HAS_KEY=yes
+          if [ ! -s "$AURA_DATA_DIR/aura.db" ] && [ "$HAS_KEY" = yes ]; then A=init; fi
+          if [ "$A" != deploy ] && [ "$HAS_KEY" = no ]; then
+            echo "::error title=TMDB-Token fehlt::Lege unter Settings → Secrets and variables → Actions das Secret TMDB_READ_TOKEN an."
+            exit 1
+          fi
+          echo "aktion=$A" >> "$GITHUB_OUTPUT"
+          echo "### AURA KINO: $A" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Katalog aktualisieren
+        if: steps.plan.outputs.aktion != 'deploy'
+        run: |
+          A="${{ steps.plan.outputs.aktion }}"
+          case "$A" in
+            init)   python3 kino.py init --leise ;;
+            update) python3 kino.py update --leise ;;
+            add)
+              if [ -n "$IN_TMDB" ]; then
+                python3 kino.py add --tmdb "$IN_TMDB"
+              elif [ -n "$IN_TITEL" ]; then
+                python3 kino.py add "$IN_TITEL" --erster < /dev/null
+              else
+                echo "::error::Für 'add' Titel oder TMDB-ID angeben."; exit 1
+              fi ;;
+            import)
+              ARGS=(--anzahl "${IN_ANZAHL:-50}" --leise)
+              [ -n "$IN_GENRE" ] && ARGS+=(--genre "$IN_GENRE")
+              [ -n "$IN_LISTE" ] && ARGS+=(--liste "$IN_LISTE")
+              [ -n "$IN_VON" ] && ARGS+=(--von "$IN_VON")
+              [ -n "$IN_BIS" ] && ARGS+=(--bis "$IN_BIS")
+              python3 kino.py import "${ARGS[@]}" ;;
+          esac
+          python3 kino.py stats | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Webseite bauen
+        run: |
+          if [ -s "$AURA_DATA_DIR/aura.db" ]; then
+            python3 kino.py export-static site --repo "$GITHUB_REPOSITORY"
+          else
+            python3 kino.py export-static site --repo "$GITHUB_REPOSITORY"
+            echo "Hinweis: leerer Katalog (noch kein TMDB-Secret)."
+          fi
+          du -sh site
+
+      - name: Katalog-Datenbank sichern (Branch katalog-daten)
+        if: steps.plan.outputs.aktion != 'deploy'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 -c "import sqlite3,os; c=sqlite3.connect(os.environ['AURA_DATA_DIR']+'/aura.db'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.execute('VACUUM'); c.close()"
+          D=$(mktemp -d)
+          cp "$AURA_DATA_DIR/aura.db" "$D/"
+          cp "$AURA_DATA_DIR/logs/update.log" "$D/update.log" 2>/dev/null || true
+          printf '# AURA KINO – Katalog-Datenbank\nWird automatisch von GitHub Actions gepflegt. Enthält nur öffentliche TMDB-Katalogdaten, keine persönlichen Daten.\n' > "$D/README.md"
+          cd "$D"
+          git init -q -b katalog-daten
+          git config user.name "aura-kino-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "Katalog $(date -u +%F\ %H:%M) – ${{ steps.plan.outputs.aktion }}"
+          git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:katalog-daten
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

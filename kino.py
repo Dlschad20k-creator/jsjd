@@ -247,6 +247,13 @@ def cmd_prune(a):
     print(("Würde entfernen: " if a.test else "Entfernt: ") + f"{n} Filme")
 
 
+def cmd_export_static(a):
+    from aura import static_export
+    conn = _conn()
+    res = static_export.export(conn, a.ziel, repo=a.repo)
+    print(f"Statische Seite: {res['movies']} Filme → {res['dir']}")
+
+
 def cmd_serve(a):
     import server
     server.main(a.host, a.port)
@@ -338,6 +345,11 @@ def main(argv=None):
     s.add_argument("--grenze", type=int)
     s.add_argument("--test", action="store_true")
     s.set_defaults(fn=cmd_prune)
+
+    s = sub.add_parser("export-static", help="Webseite für GitHub Pages erzeugen")
+    s.add_argument("ziel", nargs="?", default="site")
+    s.add_argument("--repo", default=None)
+    s.set_defaults(fn=cmd_export_static)
 
     s = sub.add_parser("serve", help="Webserver starten")
     s.add_argument("--host", default=config.HOST)
