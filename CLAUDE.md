@@ -23,6 +23,16 @@ Katalog mit automatischen Filmen von TMDB. Läuft auf einer Armbian-Box, Zugriff
 - Lokal testen: `python3 kino.py export-static /tmp/pages/jsjd` + `python3 -m http.server -d /tmp/pages` →
   `http://127.0.0.1:8000/jsjd/`; Sync-Simulator `python3 tests/mock_github.py 8600`, Test `node tests/ui-static.js …`.
 
+### Artifact-Variante (claude.ai)
+- Live: https://claude.ai/artifact/D8H7o7TX5UNSzCWs4xu7G4 (privat, nur der Besitzer).
+  Meine Daten liegen in der Artifact-Datenbank: Collection `filme` (ein Dokument pro Film, `t<tmdb_id>` bzw. `m…`
+  für eigene Filme), Einstellungen in `app/einstellungen`. Lesen/ändern mit dem `ArtifactData`-Tool.
+- Neue Filme / Update: Katalog mit `kino` aktualisieren (z. B. `kino update`, `kino add …`, `kino import …`), dann
+  `python3 kino.py export-artifact <ordner>` (braucht Pillow) und mit dem Artifact-Tool auf dieselbe URL veröffentlichen
+  (Seite `<ordner>/aura-kino.html`, `files`: `data/*.json`, `img/poster-*.jpg`, `static/icons/*`).
+- Im Artifact gibt es keine Bilder von fremden Servern (Poster als Sammelbilder), keine YouTube-Einbettung (Link)
+  und keinen Service Worker. Test: `node tests/ui-artifact.js <test.html> <ordner>` (simulierte Datenbank).
+
 ## Wo liegt was (auf der Box)
 | Was | Pfad |
 |---|---|

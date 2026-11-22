@@ -254,6 +254,14 @@ def cmd_export_static(a):
     print(f"Statische Seite: {res['movies']} Filme → {res['dir']}")
 
 
+def cmd_export_artifact(a):
+    from aura import artifact_export
+    conn = _conn()
+    res = artifact_export.export(conn, a.ziel)
+    print(f"Artifact: {res['movies']} Filme, {res['sheets']} Poster-Sammelbilder "
+          f"({res['missing_posters']} ohne Poster) → {res['dir']}")
+
+
 def cmd_serve(a):
     import server
     server.main(a.host, a.port)
@@ -350,6 +358,10 @@ def main(argv=None):
     s.add_argument("ziel", nargs="?", default="site")
     s.add_argument("--repo", default=None)
     s.set_defaults(fn=cmd_export_static)
+
+    s = sub.add_parser("export-artifact", help="App als claude.ai-Artifact bauen (braucht Pillow)")
+    s.add_argument("ziel", nargs="?", default="artifact")
+    s.set_defaults(fn=cmd_export_artifact)
 
     s = sub.add_parser("serve", help="Webserver starten")
     s.add_argument("--host", default=config.HOST)

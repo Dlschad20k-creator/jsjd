@@ -46,6 +46,32 @@ const I = {
 
 /* ======================================================= API */
 const STATIC = !!(window.AuraLocal && window.AuraLocal.enabled);
+const ARTIFACT = !!(window.AuraLocal && window.AuraLocal.artifact);
+
+/* Navigation: normal über location.hash; im claude.ai-Artifact intern (dort sind nur einfache #namen erlaubt) */
+let vHash = "#/";
+const vHist = ["#/"];
+const getHash = () => (ARTIFACT ? vHash : location.hash);
+function go(h, replace = false) {
+  if (!ARTIFACT) { if (replace) location.replace(h); else location.hash = h; return; }
+  if (replace) vHist[vHist.length - 1] = h; else vHist.push(h);
+  if (vHist.length > 80) vHist.splice(0, vHist.length - 80);
+  vHash = h;
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}
+function setHashSilently(h) {
+  if (ARTIFACT) { vHash = h; vHist[vHist.length - 1] = h; return; }
+  if (location.hash !== h) history.replaceState(null, "", h);
+}
+if (ARTIFACT) {
+  document.documentElement.classList.add("artifact");
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="#/"]');
+    if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
+    e.preventDefault();
+    go(a.getAttribute("href"));
+  });
+}
 const API = {
   async req(method, path, body) {
     if (STATIC) {
@@ -130,9 +156,18 @@ function confirmSheet(title, text, okLabel = "Löschen") {
 }
 
 /* ======================================================= Bausteine */
+const SPRITE_COLS = 10, SPRITE_ROWS = 10;
+function spriteStyle(ref) {
+  const [, sheet, idx] = ref.split(":").map(Number);
+  const col = idx % SPRITE_COLS, row = Math.floor(idx / SPRITE_COLS);
+  return `background-image:url(img/poster-${sheet}.jpg);background-size:${SPRITE_COLS * 100}% ${SPRITE_ROWS * 100}%;`
+    + `background-position:${(col / (SPRITE_COLS - 1)) * 100}% ${(row / (SPRITE_ROWS - 1)) * 100}%`;
+}
 function posterHTML(c, cls = "") {
   const ph = `<div class="ph">${esc(c.title)}</div>`;
-  const img = c.poster ? `<img src="${esc(c.poster)}" alt="" loading="lazy" decoding="async">` : "";
+  let img = "";
+  if (c.poster && c.poster.startsWith("spr:")) img = `<i class="spr" style="${spriteStyle(c.poster)}"></i>`;
+  else if (c.poster) img = `<img src="${esc(c.poster)}" alt="" loading="lazy" decoding="async">`;
   return `<div class="poster ${cls}">${ph}${img}</div>`;
 }
 
@@ -192,7 +227,7 @@ let leaveHooks = [];
 const onLeave = (fn) => leaveHooks.push(fn);
 
 function parseHash() {
-  const raw = location.hash.replace(/^#/, "") || "/";
+  const raw = getHash().replace(/^#/, "") || "/";
   const [path, qs] = raw.split("?");
   return { path, query: Object.fromEntries(new URLSearchParams(qs || "")), raw };
 }
@@ -223,12 +258,17 @@ async function render() {
     if (token === renderToken) window.scrollTo(0, back ? scrollMem.get(key) || 0 : 0);
     return;
   }
-  location.hash = "#/";
+  go("#/", true);
 }
 const stack = [];
 window.addEventListener("hashchange", render);
 const setView = (html) => { view().innerHTML = `<div class="page">${html}</div>`; };
 function goBack() {
+  if (ARTIFACT) {
+    if (vHist.length > 1) { vHist.pop(); vHash = vHist[vHist.length - 1]; window.dispatchEvent(new HashChangeEvent("hashchange")); }
+    else go("#/", true);
+    return;
+  }
   const h = location.hash;
   if (stack.length > 1) history.back();
   setTimeout(() => { if (location.hash === h) location.hash = "#/"; }, 350);
@@ -280,7 +320,7 @@ route(/^\/suche$/, async ({ query }) => {
   const writeHash = () => {
     const p = new URLSearchParams(Object.entries(st).filter(([, v]) => v !== "" && v != null));
     const h = "#/suche" + (p.toString() ? "?" + p : "");
-    if (location.hash !== h) history.replaceState(null, "", h);
+    setHashSilently(h);
   };
   const filterLabels = () => {
     const out = [];
@@ -319,6 +359,7 @@ route(/^\/suche$/, async ({ query }) => {
           <p style="margin:0 0 12px">${total ? "Nicht dabei?" : `„${esc(st.q)}“ ist nicht im Katalog.`}</p>
           ${m.can_request ? `<button class="btn primary" id="req">${I.plus} „${esc(st.q)}“ hinzufügen lassen</button>
             <p class="dim small" style="margin:10px 0 0">GitHub sucht den Film bei TMDB und fügt ihn hinzu (ca. 2–3 Minuten).</p>`
+          : ARTIFACT ? `<p class="muted small" style="margin:0">Sag Claude im Chat: <b>„Füg ${esc(st.q)} zu AURA KINO hinzu“</b> – oder <a class="link" href="#/eigener-film" style="min-height:0">eigenen Film anlegen</a>.</p>`
           : `<p class="muted small" style="margin:0">Zum Anfordern unter <a class="link" href="#/mehr" style="min-height:0">Mehr → GitHub-Sync</a> einen Token eintragen – oder <a class="link" href="#/eigener-film" style="min-height:0">eigenen Film anlegen</a>.</p>`}</div>`;
         const rq = $("#req");
         if (rq) rq.onclick = async () => {
@@ -354,7 +395,7 @@ route(/^\/suche$/, async ({ query }) => {
         try {
           const r = await API.post("/api/tmdb/add", { tmdb_id: Number(b.dataset.add) });
           toast("Zum Katalog hinzugefügt");
-          location.hash = `#/film/${r.id}`;
+          go(`#/film/${r.id}`);
         } catch (e) { fail(e); b.disabled = false; b.textContent = "Hinzufügen"; }
       });
     } catch (e) { $("#tmdb").innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
@@ -416,7 +457,7 @@ route(/^\/merkliste$/, async ({ query, isCurrent }) => {
         <span class="switch"><input type="checkbox" id="mine" ${mine ? "checked" : ""}><i></i></span></label>
       <div id="wl" style="margin-top:6px">${skeletonGrid()}</div></div>`;
   setView(head);
-  $("#mine").onchange = (e) => { location.hash = `#/merkliste?${new URLSearchParams({ ...(sort ? { sort } : {}), ...(e.target.checked ? { mine: 1 } : {}) })}`; };
+  $("#mine").onchange = (e) => { go(`#/merkliste?${new URLSearchParams({ ...(sort ? { sort } : {}), ...(e.target.checked ? { mine: 1 } : {}) })}`); };
   const data = await API.get(`/api/watchlist?sort=${sort}&mine=${mine ? 1 : 0}`);
   if (!isCurrent()) return;
   $("#wlsub").textContent = data.total ? `${data.total} ${data.total === 1 ? "Film" : "Filme"}${mine ? " auf deinen Diensten" : ""}` : "";
@@ -471,7 +512,7 @@ function renderDetail(f) {
   const provKinds = ["flatrate", "free", "ads", "rent", "buy"].filter((k) => f.providers[k] && f.providers[k].length);
   const metaBits = [f.year, f.genres.map((g) => esc(g.name)).join(", "), fmtRuntime(f.runtime)].filter(Boolean);
   setView(`
-  <div class="hero">${f.backdrop ? `<img src="${esc(f.backdrop)}" alt="" decoding="async">` : ""}
+  <div class="hero">${f.backdrop ? `<img src="${esc(f.backdrop)}" alt="" decoding="async">` : f.poster && f.poster.startsWith("spr:") ? `<i class="spr hero-blur" style="${spriteStyle(f.poster)}"></i>` : ""}
     <div class="hero-nav"><button class="icon-btn glass" data-back aria-label="Zurück">${I.back}</button>
     ${f.manual ? `<a class="icon-btn glass" href="#/eigener-film/${f.id}" aria-label="Bearbeiten">${I.edit}</a>` : ""}</div></div>
   <div class="wrap">
@@ -498,8 +539,9 @@ function renderDetail(f) {
     ${f.cast.length ? `<div class="section"><h2>Besetzung</h2><div class="people">${f.cast.map((c) => `<a class="person" href="#/suche?q=${encodeURIComponent(c.name)}"><b>${esc(c.name)}</b>${c.character ? `<span>${esc(c.character)}</span>` : ""}</a>`).join("")}</div></div>` : ""}
 
     ${main ? `<div class="section" id="trailer-sec"><h2>Trailer</h2>
-      <div class="trailer" id="trailer">${f.backdrop ? `<img src="${esc(f.backdrop)}" alt="">` : ""}
-        <button class="play" aria-label="Trailer abspielen"><span>${I.play}</span></button><div class="cap" id="trcap">${esc(main.name || "Trailer")}${main.lang ? ` · ${main.lang.toUpperCase()}` : ""}</div></div>
+      <div class="trailer" id="trailer">${f.backdrop ? `<img src="${esc(f.backdrop)}" alt="">` : f.poster && f.poster.startsWith("spr:") ? `<i class="spr hero-blur" style="${spriteStyle(f.poster)}"></i>` : ""}
+        ${ARTIFACT ? `<a class="play" id="ytplay" href="https://www.youtube.com/watch?v=${esc(main.key)}" target="_blank" rel="noopener" aria-label="Trailer auf YouTube abspielen"><span>${I.play}</span></a>`
+          : `<button class="play" aria-label="Trailer abspielen"><span>${I.play}</span></button>`}<div class="cap" id="trcap">${esc(main.name || "Trailer")}${main.lang ? ` · ${main.lang.toUpperCase()}` : ""}</div></div>
       <div class="chips" id="trlist" style="margin-top:10px">${f.trailers.length > 1 ? f.trailers.map((t, i) => `<button class="chip ${t === main ? "on" : ""}" data-i="${i}">${esc((t.lang || "").toUpperCase())} · ${esc(t.type === "Teaser" ? "Teaser" : "Trailer")}${t.official ? "" : " (inoffiziell)"}</button>`).join("") : ""}</div>
       <a class="link" id="ytlink" href="https://www.youtube.com/watch?v=${esc(main.key)}" target="_blank" rel="noopener">Auf YouTube öffnen ${I.ext}</a></div>` : ""}
 
@@ -537,7 +579,7 @@ function renderDetail(f) {
   wireGoofs(f);
   if (f.manual) $("#m-del").onclick = async () => {
     if (!(await confirmSheet("Eigenen Film löschen?", `„${f.title}“ mit allen Notizen, Bewertungen und Fehlern löschen? Vorher wird automatisch ein Backup angelegt.`))) return;
-    try { await API.del(`/api/manual/${f.id}`); toast("Gelöscht"); location.hash = "#/"; } catch (e) { fail(e); }
+    try { await API.del(`/api/manual/${f.id}`); toast("Gelöscht"); go("#/"); } catch (e) { fail(e); }
   };
 }
 
@@ -636,6 +678,20 @@ function wireTrailer(f, main) {
   if (!main) return;
   let cur = main;
   const box = $("#trailer");
+  if (ARTIFACT) {
+    // Einbetten ist im Artifact nicht erlaubt: Trailer öffnen auf YouTube
+    $("#a-tr").onclick = () => $("#ytplay").click();
+    const tl = $("#trlist");
+    if (tl) tl.onclick = (e) => {
+      const b = e.target.closest("[data-i]"); if (!b) return;
+      cur = f.trailers[Number(b.dataset.i)];
+      $$(".chip", tl).forEach((c) => c.classList.toggle("on", c === b));
+      const url = `https://www.youtube.com/watch?v=${cur.key}`;
+      $("#ytlink").href = url; $("#ytplay").href = url;
+      $("#trcap").textContent = (cur.name || "Trailer") + (cur.lang ? " · " + cur.lang.toUpperCase() : "");
+    };
+    return;
+  }
   const play = () => {
     box.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(cur.key)}?autoplay=1&playsinline=1&rel=0&modestbranding=1&hl=de"
       title="${esc(cur.name || "Trailer")}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
@@ -833,7 +889,7 @@ route(/^\/eigener-film(?:\/([\w-]+))?$/, async ({ params, isCurrent }) => {
     try {
       const r = f ? await API.put(`/api/manual/${f.id}`, body) : await API.post("/api/manual", body);
       toast(f ? "Gespeichert" : "Film angelegt");
-      location.replace(`#/film/${r.id}`);
+      go(`#/film/${r.id}`, true);
     } catch (e) { fail(e); $("#save").disabled = false; }
   };
 }, "mehr");
@@ -888,17 +944,19 @@ route(/^\/mehr$/, async ({ isCurrent }) => {
       <a href="#/eigener-film">${I.plus}<span class="grow">Eigenen Film anlegen</span><span class="chev">${I.chev}</span></a>
     </div></div>
 
-    ${STATIC ? `<div class="section"><h2>GitHub-Sync</h2><div class="panel" id="ghsync"></div>
+    ${ARTIFACT ? `<div class="section"><h2>Deine Daten</h2><div class="panel" id="store"></div>
+      <p class="dim small">Merkliste, Tagebuch, Bewertungen, Notizen und Filmfehler liegen in der Datenbank dieses Artifacts – nur für dich lesbar, auf jedem Gerät, auf dem du bei Claude angemeldet bist.</p></div>` : ""}
+    ${STATIC && !ARTIFACT ? `<div class="section"><h2>GitHub-Sync</h2><div class="panel" id="ghsync"></div>
       <p class="dim small">Deine Merkliste, Bewertungen, Notizen und Filmfehler liegen auf diesem Gerät und – mit Token – in deinem <b>privaten</b> Repo. Jede Änderung ist dort eine eigene Version.</p></div>` : ""}
 
     <div class="section"><h2>Update-Status</h2><div class="panel" id="upd"></div></div>
 
     <div class="section"><h2>Backup</h2><div class="panel menu">
-      <button id="bk">${I.shield}<span class="grow">${STATIC ? "Jetzt synchronisieren" : "Backup jetzt anlegen"}</span><span class="dim small" id="bkinfo"></span></button>
+      ${ARTIFACT ? "" : `<button id="bk">${I.shield}<span class="grow">${STATIC ? "Jetzt synchronisieren" : "Backup jetzt anlegen"}</span><span class="dim small" id="bkinfo"></span></button>`}
       ${STATIC ? `<button id="exp">${I.download}<span class="grow">Export als JSON</span><span class="chev">${I.chev}</span></button>`
         : `<a href="/api/export" download>${I.download}<span class="grow">Export als JSON</span><span class="chev">${I.chev}</span></a>`}
       <label style="display:flex;align-items:center;gap:14px;min-height:54px;border-top:1px solid var(--line);font-weight:550;cursor:pointer">${I.upload}<span class="grow">Import aus JSON</span><input type="file" id="imp" accept="application/json,.json" class="sr"></label>
-    </div><p class="dim small">${STATIC ? "Automatisch: jede Änderung landet als Version in deinem privaten GitHub-Repo." : "Automatisch: jede Nacht ein Backup, die letzten 14 bleiben erhalten."}</p></div>
+    </div><p class="dim small">${ARTIFACT ? "Jede Änderung wird sofort gespeichert. Der Export ist deine zusätzliche Sicherung (auch für die Box- oder GitHub-Version)." : STATIC ? "Automatisch: jede Änderung landet als Version in deinem privaten GitHub-Repo." : "Automatisch: jede Nacht ein Backup, die letzten 14 bleiben erhalten."}</p></div>
 
     <div class="section"><h2>Sicherheit</h2><div class="panel">
       <label class="toggle"><span style="display:flex;gap:12px;align-items:center">${I.lock} PIN beim Öffnen</span><span class="switch"><input type="checkbox" id="pin" ${m.pin_enabled ? "checked" : ""}><i></i></span></label>
@@ -926,8 +984,9 @@ route(/^\/mehr$/, async ({ isCurrent }) => {
       <div style="display:flex;align-items:center;gap:10px"><span class="dot ${u.running ? "run" : last && last.status === "error" ? "err" : ""}"></span>
         <div class="grow"><b>${u.running ? "Update läuft …" : last ? `Letztes Update ${fmtDateTime(last.finished_at || last.started_at)}` : "Noch kein Update"}</b>
         <div class="muted small">${u.counts.catalog} / ${u.limit} Katalogfilme · ${u.counts.mine} deine Filme${last ? ` · zuletzt +${last.added} neu, ${last.refreshed} aktualisiert` : ""}</div></div></div>
-      <button class="btn block" id="upnow" style="margin-top:14px" ${u.running || !(m.tmdb || m.can_request) ? "disabled" : ""}>${I.refresh} Jetzt aktualisieren</button>
-      ${STATIC ? (m.can_request ? `<p class="dim small">Startet das Update auf GitHub (ca. 3–5 Min.). Automatisch jede Nacht gegen 4 Uhr.${u.github && u.github.url ? ` <a class="link" href="${esc(u.github.url)}" target="_blank" rel="noopener" style="min-height:0;font-size:12px">Letzter Lauf ${I.ext}</a>` : ""}</p>` : '<p class="muted small">Zum Starten per Knopf einen GitHub-Token eintragen (oben). Automatisch läuft es jede Nacht gegen 4 Uhr.</p>')
+      ${ARTIFACT ? "" : `<button class="btn block" id="upnow" style="margin-top:14px" ${u.running || !(m.tmdb || m.can_request) ? "disabled" : ""}>${I.refresh} Jetzt aktualisieren</button>`}
+      ${ARTIFACT ? `<p class="dim small">Katalog-Stand: ${m.generated_at ? fmtDateTime(m.generated_at) : "–"}. Neue Filme: sag Claude „Aktualisiere AURA KINO“ oder „Mach 20 neue Horrorfilme rein“.</p>`
+        : STATIC ? (m.can_request ? `<p class="dim small">Startet das Update auf GitHub (ca. 3–5 Min.). Automatisch jede Nacht gegen 4 Uhr.${u.github && u.github.url ? ` <a class="link" href="${esc(u.github.url)}" target="_blank" rel="noopener" style="min-height:0;font-size:12px">Letzter Lauf ${I.ext}</a>` : ""}</p>` : '<p class="muted small">Zum Starten per Knopf einen GitHub-Token eintragen (oben). Automatisch läuft es jede Nacht gegen 4 Uhr.</p>')
         : (m.tmdb ? "" : '<p class="muted small">Kein TMDB-Key eingerichtet (.env auf der Box).</p>')}
       <div class="list runs" style="margin-top:10px">${u.runs.slice(0, 5).map((r) => `<div class="li"><span class="dot ${r.status === "error" ? "err" : r.status === "running" ? "run" : ""}"></span>
         <div class="grow">${{ update: "Update", initial: "Erst-Import", import: "Import", add: "Hinzugefügt" }[r.kind] || r.kind} · ${fmtDateTime(r.started_at)}</div>
@@ -952,9 +1011,17 @@ route(/^\/mehr$/, async ({ isCurrent }) => {
   drawUpd(u);
   if (u.running) poll();
   const lastBk = (u.backups || [])[0];
-  $("#bkinfo").textContent = lastBk ? fmtDateTime(lastBk.time) : "";
+  if ($("#bkinfo")) $("#bkinfo").textContent = lastBk ? fmtDateTime(lastBk.time) : "";
 
-  $("#bk").onclick = async () => {
+  const drawStore = () => {
+    const box = $("#store"); if (!box) return;
+    const i = window.AuraLocal.storageInfo();
+    box.innerHTML = `<div style="display:flex;align-items:center;gap:10px"><span class="dot ${i.state === "ready" ? "" : i.state === "loading" ? "run" : "err"}"></span>
+      <div class="grow"><b>${i.state === "ready" ? "Gespeichert in der Artifact-Datenbank" : i.state === "loading" ? "Verbinde mit der Datenbank …" : i.state === "local" ? "Nur in diesem Browser gespeichert" : "Datenbank-Problem"}</b>
+      ${i.error ? `<div class="muted small">${esc(i.error)}</div>` : ""}</div></div>`;
+  };
+  if (ARTIFACT) { drawStore(); const onS = () => { if (isCurrent()) drawStore(); }; window.addEventListener("aura-sync", onS); onLeave(() => window.removeEventListener("aura-sync", onS)); }
+  if ($("#bk")) $("#bk").onclick = async () => {
     try {
       const r = await API.post("/api/backup");
       if (STATIC) { toast("Synchronisiert"); drawSync(); return; }
@@ -964,6 +1031,13 @@ route(/^\/mehr$/, async ({ isCurrent }) => {
   const exp = $("#exp");
   if (exp) exp.onclick = async () => {
     const data = await API.get("/api/export");
+    if (ARTIFACT) {
+      const dl = window.claude && window.claude.use ? await window.claude.use("downloads").catch(() => null) : null;
+      if (!dl) return toast("Speichern ist hier nicht möglich", { error: true });
+      try { await dl.save({ filename: `aura-kino-${todayISO()}.json`, data: JSON.stringify(data, null, 1) }); toast("Export gespeichert"); }
+      catch (e) { if (e && e.code !== "dismissed") fail(new Error("Export abgebrochen")); }
+      return;
+    }
     const blob = new Blob([JSON.stringify(data, null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = `aura-kino-${todayISO()}.json`;
@@ -1099,6 +1173,7 @@ window.addEventListener("aura-sync", (e) => {
   const y = window.scrollY;
   render().then(() => window.scrollTo(0, y));
 });
+window.addEventListener("aura-store-error", (e) => toast(e.detail, { error: true }));
 window.addEventListener("online", offlinePill);
 window.addEventListener("offline", offlinePill);
 
@@ -1112,7 +1187,7 @@ async function start() {
   setTimeout(() => $("#splash")?.classList.add("hide"), 60);
 }
 
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && !ARTIFACT) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js", { scope: "./" }).catch(() => {}));
 }
 start().finally(() => setTimeout(() => $("#splash")?.classList.add("hide"), 400));

@@ -5,8 +5,12 @@
 "use strict";
 (function () {
   const modeMeta = document.querySelector('meta[name="aura-mode"]');
-  const enabled = !!modeMeta && modeMeta.content === "static";
+  const enabled = !!modeMeta && (modeMeta.content === "static" || modeMeta.content === "artifact");
+  const ARTIFACT = !!modeMeta && modeMeta.content === "artifact";   // claude.ai-Artifact: Daten in der Artifact-Datenbank
   const IMG = "https://image.tmdb.org/t/p/";
+  // Poster-URL: im Artifact aus mitgelieferten Sammelbildern ("spr:<blatt>:<nr>"), sonst direkt von TMDB
+  const posterOf = (it, size = "w342") => it && it.cover ? it.cover : it && it.ps ? `spr:${it.ps[0]}:${it.ps[1]}` : it && it.pp && !ARTIFACT ? IMG + size + it.pp : null;
+  const logoOf = (p) => p.logo || (p.logo_path && !ARTIFACT ? IMG + "w92" + p.logo_path : null);
   const DATA_FILE = "aura-daten.json";
   const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
   const VERDICTS = ["lohnt", "geht", "zeit"];
@@ -63,7 +67,13 @@
     RUNKIND = new Map(META.runs.map((r) => [r.id, r.kind]));
   }
   const detailCache = new Map();
+  let allDetails = null;
   async function filmDetail(tmdbId) {
+    if (ARTIFACT) {
+      if (!allDetails) allDetails = fetch("data/details.json").then((r) => r.ok ? r.json() : {}).catch(() => ({}));
+      const all = await allDetails;
+      return all[tmdbId] || null;
+    }
     if (detailCache.has(tmdbId)) return detailCache.get(tmdbId);
     try {
       const r = await fetch(`data/film/${tmdbId}.json`);
@@ -80,19 +90,84 @@
   const empty = () => ({ app: "AURA KINO", kind: "personal", version: 1, updated_at: now(), settings: { my_services: [], u: "" }, movies: {} });
   async function loadMy() {
     if (MY) return;
+    if (ARTIFACT) { MY = empty(); Store.start(); return; }
     const st = await idb.get("my").catch(() => null);
     MY = (st && st.data) || empty();
     SYNC.base_sha = (st && st.base_sha) || null;
     SYNC.dirty = !!(st && st.dirty);
   }
+  const dirtyKeys = new Set();
   async function persist() {
     MY.updated_at = now();
+    allCache = null;
+    if (ARTIFACT) { const keys = [...dirtyKeys]; dirtyKeys.clear(); keys.forEach((k) => Store.write(k)); return; }
+    dirtyKeys.clear();
     SYNC.dirty = true;
     SYNC.rev++;
     await idb.set("my", { data: MY, base_sha: SYNC.base_sha, dirty: true });
-    allCache = null;
     Sync.schedule();
   }
+
+  /* Artifact-Datenbank: ein Dokument pro Film ("filme/t123"), Einstellungen in "app/einstellungen".
+     Fällt auf den Gerätespeicher zurück, wenn die Datenbank nicht erreichbar ist. */
+  const Store = {
+    db: null, state: ARTIFACT ? "loading" : "off", error: null, loaded: false,
+    queue: new Map(), inflight: new Set(),
+    info() { return { kind: ARTIFACT ? (this.state === "local" ? "local" : "db") : "github", state: this.state, error: this.error }; },
+    async start() {
+      const timer = setTimeout(() => { if (!this.loaded) { this.error = "Datenbank antwortet noch nicht"; this.emit(false); } }, 10000);
+      let db = null;
+      try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch (e) { db = null; }
+      if (!db) {
+        clearTimeout(timer);
+        this.state = "local";
+        this.error = "Artifact-Datenbank nicht verfügbar – Einträge bleiben nur in diesem Browser.";
+        const st = await idb.get("my").catch(() => null);
+        if (st && st.data) { MY = st.data; allCache = null; }
+        this.emit(true);
+        return;
+      }
+      this.db = db;
+      db.collection("filme").onSnapshot((snap) => {
+        const movies = {};
+        snap.docs.forEach((d) => { if (d.exists) movies[d.id] = JSON.parse(JSON.stringify(d.data())); });
+        for (const k of this.inflight) if (MY.movies[k]) movies[k] = MY.movies[k];   // eigene, noch laufende Änderungen behalten
+        for (const k of this.queue.keys()) if (MY.movies[k]) movies[k] = MY.movies[k];
+        MY.movies = movies; allCache = null;
+        if (!snap.metadata.fromCache) { this.loaded = true; this.state = "ready"; this.error = null; clearTimeout(timer); }
+        this.emit(true);
+      }, (e) => { this.state = "error"; this.error = e.message || e.code; this.emit(false); });
+      db.doc("app/einstellungen").onSnapshot((d) => {
+        if (d.exists && !this.queue.has("__settings") && !this.inflight.has("__settings")) {
+          MY.settings = { ...empty().settings, ...JSON.parse(JSON.stringify(d.data())) };
+          this.emit(true);
+        }
+      }, () => {});
+    },
+    emit(changed) { window.dispatchEvent(new CustomEvent("aura-sync", { detail: { ...Sync.info(), changed, storage: this.info() } })); },
+    write(key) {
+      if (this.state === "local") { idb.set("my", { data: MY, base_sha: null, dirty: false }); return; }
+      this.queue.set(key, true);
+      this.pump(key);
+    },
+    async pump(key) {
+      if (this.inflight.has(key) || !this.queue.has(key)) return;
+      if (!this.db) { setTimeout(() => this.pump(key), 500); return; }
+      this.queue.delete(key); this.inflight.add(key);
+      try {
+        if (key === "__settings") await this.db.doc("app/einstellungen").set(JSON.parse(JSON.stringify(MY.settings)));
+        else if (MY.movies[key]) await this.db.collection("filme").doc(key).set(JSON.parse(JSON.stringify(MY.movies[key])));
+        this.error = null;
+      } catch (e) {
+        this.error = "Speichern fehlgeschlagen: " + (e.message || e.code);
+        if (e.code === "unavailable") this.queue.set(key, true);
+        window.dispatchEvent(new CustomEvent("aura-store-error", { detail: this.error }));
+      } finally {
+        this.inflight.delete(key);
+        if (this.queue.has(key)) setTimeout(() => this.pump(key), 300);
+      }
+    },
+  };
   const keyOf = (id) => (String(id).startsWith("m") ? String(id) : "t" + Number(id));
   function entry(id, create = false) {
     const k = keyOf(id);
@@ -104,7 +179,7 @@
     return e;
   }
   const isMine = (e) => !!e && !e.deleted_manual && (!!e.manual || !!e.wl || (e.views && e.views.length) || !!e.rating || (e.note && e.note.text && e.note.text.trim()) || (e.goofs && e.goofs.length));
-  function touch(e) { e.u = now(); }
+  function touch(e) { e.u = now(); dirtyKeys.add(e.key); }
   async function snapshot(e) {
     // Vollständige Kopie der Filmdaten, damit "meine" Filme auch nach dem Aufräumen des Katalogs bleiben
     if (!e.tmdb_id) return;
@@ -143,7 +218,7 @@
     const g = (it.g || []).map((x) => GENRES.get(x)).filter(Boolean);
     return {
       id: it.i, tmdb_id: typeof it.i === "number" ? it.i : null, title: it.t, year: it.y, date: it.d, runtime: it.rt, fsk: it.f,
-      vote: it.v, votes: it.n, poster: it.cover || (it.pp ? IMG + "w342" + it.pp : null),
+      vote: it.v, votes: it.n, poster: posterOf(it),
       wl: e && e.wl ? e.wl.priority : null, seen: e && e.views ? e.views.length : 0,
       my_rating: e && e.rating ? e.rating.rating : null, genre: g[0] || null, manual: !!it.manual,
     };
@@ -235,13 +310,13 @@
     const last = (META.runs || []).find((r) => (r.kind === "update" || r.kind === "initial") && r.status !== "running");
     return {
       genres: META.genres.map((g) => ({ id: g.id, name: g.name, n: gc.get(g.id) || 0 })),
-      providers: META.providers.map((p) => ({ id: p.id, name: p.name, n: pc.get(p.id) || 0, logo: p.logo_path ? IMG + "w92" + p.logo_path : null }))
+      providers: META.providers.map((p) => ({ id: p.id, name: p.name, n: pc.get(p.id) || 0, logo: logoOf(p) }))
         .sort((a, b) => b.n - a.n),
       fsk: [...fsk].sort((a, b) => (parseInt(a) || 99) - (parseInt(b) || 99)), years: [ymin === 9999 ? null : ymin, ymax || null],
       my_services: MY.settings.my_services || [], counts: { total: CAT.length + mine, mine, keep: 0, catalog: CAT.length },
       limit: META.limit, last_update: last || null, update_running: false,
       pin_enabled: !!MY.settings.pin_enabled, tmdb: false, static: true,
-      can_request: Sync.configured(), themes: (META.themes || []).map((t) => t.label),
+      can_request: !ARTIFACT && Sync.configured(), artifact: ARTIFACT, storage: Store.info(), themes: (META.themes || []).map((t) => t.label),
       generated_at: META.generated_at, repo: META.repo,
     };
   };
@@ -249,7 +324,7 @@
   function provList(d, svc) {
     const out = {};
     for (const [k, arr] of Object.entries(d.providers || {})) {
-      out[k] = arr.map((p) => ({ id: p.id, name: p.name, mine: svc.has(p.id), logo: p.logo_path ? IMG + "w92" + p.logo_path : null }));
+      out[k] = arr.map((p) => ({ id: p.id, name: p.name, mine: svc.has(p.id), logo: logoOf(PROVS.get(p.id) || p) }));
     }
     return out;
   }
@@ -279,7 +354,7 @@
     const it = BYID.get(tid) || (e && e.snap && e.snap.item);
     if (!d && !it) throw new ApiErr(404, "Film nicht gefunden (nicht mehr im Katalog)");
     if (!d) d = { tmdb_id: tid, title: it.t, year: it.y, release_date: it.d, runtime: it.rt, fsk: it.f, vote: it.v, votes: it.n, poster_path: it.pp, genres: (it.g || []).map((g) => ({ id: g, name: GENRES.get(g) })), directors: it.dr ? [it.dr] : [], cast: (it.c || []).map((n) => ({ name: n })), trailers: [], providers: {}, similar: [] };
-    if (e && isMine(e)) { e.snap = { item: it || detailToItem(d), detail: d, at: now() }; idb.set("my", { data: MY, base_sha: SYNC.base_sha, dirty: SYNC.dirty }); }
+    if (e && isMine(e) && !ARTIFACT) { e.snap = { item: it || detailToItem(d), detail: d, at: now() }; idb.set("my", { data: MY, base_sha: SYNC.base_sha, dirty: SYNC.dirty }); }
     const svc = new Set(MY.settings.my_services || []);
     let similar = (d.similar || []).map((s) => BYID.get(s)).filter(Boolean).slice(0, 12).map(card);
     if (similar.length < 12 && d.genres && d.genres.length) {
@@ -293,8 +368,9 @@
       id: tid, tmdb_id: tid, manual: false, title: d.title, original_title: d.original_title, year: d.year, release_date: d.release_date,
       release_date_de: d.release_date_de, runtime: d.runtime, fsk: d.fsk, vote: d.vote, votes: d.votes, overview: d.overview,
       overview_lang: d.overview_lang, tagline: d.tagline,
-      poster: d.poster_path ? IMG + "w342" + d.poster_path : null, poster_big: d.poster_path ? IMG + "w780" + d.poster_path : null,
-      backdrop: d.backdrop_path ? IMG + "w1280" + d.backdrop_path : null, genres: d.genres || [], directors: d.directors || [],
+      poster: ARTIFACT ? posterOf(it) : d.poster_path ? IMG + "w342" + d.poster_path : null,
+      poster_big: ARTIFACT ? posterOf(it) : d.poster_path ? IMG + "w780" + d.poster_path : null,
+      backdrop: !ARTIFACT && d.backdrop_path ? IMG + "w1280" + d.backdrop_path : null, genres: d.genres || [], directors: d.directors || [],
       cast: d.cast || [], trailers: d.trailers || [], providers: provList(d, svc), justwatch: d.justwatch,
       tmdb_url: `https://www.themoviedb.org/movie/${tid}`, updated_at: d.updated_at, my, similar,
     };
@@ -384,7 +460,7 @@
   };
 
   R.update = async () => {
-    const st = await Actions.status().catch(() => null);
+    const st = ARTIFACT ? null : await Actions.status().catch(() => null);
     const mine = Object.values(MY.movies).filter(isMine).length;
     return { running: !!(st && st.running), runs: META.runs || [], counts: { total: CAT.length + mine, mine, keep: 0, catalog: CAT.length },
       limit: META.limit, backups: [], github: st, sync: Sync.info() };
@@ -489,7 +565,7 @@
     return { ok: true, previous: { ...x.g } };
   };
   W.settings = async (b) => {
-    if ("my_services" in b) { MY.settings.my_services = (b.my_services || []).map(Number); MY.settings.u = now(); await persist(); }
+    if ("my_services" in b) { MY.settings.my_services = (b.my_services || []).map(Number); MY.settings.u = now(); dirtyKeys.add("__settings"); await persist(); }
     return { ok: true, my_services: MY.settings.my_services };
   };
   async function hashPin(pin, salt) {
@@ -504,10 +580,10 @@
   }
   W.pin = async (b) => {
     if (MY.settings.pin_enabled && !(await checkPin(String(b.current || "")))) throw new ApiErr(403, "Aktuelle PIN stimmt nicht.");
-    if (b.enabled === false) { MY.settings.pin_enabled = false; MY.settings.u = now(); await persist(); return { ok: true, pin_enabled: false }; }
+    if (b.enabled === false) { MY.settings.pin_enabled = false; MY.settings.u = now(); dirtyKeys.add("__settings"); await persist(); return { ok: true, pin_enabled: false }; }
     if (!/^\d{4,8}$/.test(String(b.pin || ""))) throw new ApiErr(400, "Die PIN muss aus 4 bis 8 Ziffern bestehen.");
     MY.settings.pin_hash = await hashPin(String(b.pin));
-    MY.settings.pin_enabled = true; MY.settings.u = now(); await persist();
+    MY.settings.pin_enabled = true; MY.settings.u = now(); dirtyKeys.add("__settings"); await persist();
     sessionStorage.setItem("aura.authed", "1");
     return { ok: true, pin_enabled: true };
   };
@@ -519,6 +595,7 @@
       title, year: /^\d+$/.test(b.year || "") ? Number(b.year) : null, runtime: /^\d+$/.test(b.runtime || "") ? Number(b.runtime) : null,
       director: (b.director || "").trim() || null, overview: (b.overview || "").trim() || null, genres: (b.genres || []).map(Number),
       cover: b.cover || null, created_at: now() } };
+    dirtyKeys.add(key);
     await persist();
     return { ok: true, id: key };
   };
@@ -541,6 +618,7 @@
     if (!e || !e.manual) throw new ApiErr(404, "Nur eigene Filme können gelöscht werden.");
     // Kein echtes Löschen: als gelöscht markieren (Sync-sicher; frühere Versionen bleiben in der Git-Historie)
     MY.movies[id] = { key: id, deleted_manual: true, views: [], goofs: [], u: now() };
+    dirtyKeys.add(id);
     await persist();
     return { ok: true };
   };
@@ -574,7 +652,7 @@
       MY = Sync.merge(MY, data); await persist(); return { ok: true, movies: Object.keys(data.movies).length, created: 0, views: 0, goofs: 0 };
     }
     const st = { movies: 0, created: 0, views: 0, goofs: 0 };
-    if (data.settings && data.settings.my_services) { try { MY.settings.my_services = JSON.parse(data.settings.my_services).map(Number); MY.settings.u = now(); } catch (e) { /* */ } }
+    if (data.settings && data.settings.my_services) { try { MY.settings.my_services = JSON.parse(data.settings.my_services).map(Number); MY.settings.u = now(); dirtyKeys.add("__settings"); } catch (e) { /* */ } }
     for (const item of data.movies || []) {
       const ref = item.movie || {};
       let e;
@@ -719,7 +797,7 @@
   /* ------------------------------------------------ Router für /api/... */
   let ready = null;
   async function init() {
-    if (!ready) ready = (async () => { await Promise.all([loadCatalog(), loadMy()]); Sync.run().catch(() => {}); })();
+    if (!ready) ready = (async () => { await Promise.all([loadCatalog(), loadMy()]); if (!ARTIFACT) Sync.run().catch(() => {}); })();
     return ready;
   }
   async function handle(method, path, body) {
@@ -758,7 +836,7 @@
       if (p === "/api/manual") return W.manualAdd(body);
       if ((m = p.match(/^\/api\/manual\/([\w-]+)$/))) return method === "PUT" ? W.manualEdit(body, m[1]) : W.manualDelete(body, m[1]);
       if (p === "/api/import") return W.importJson(body);
-      if (p === "/api/backup") { await Sync.run(); return { ok: true, backups: [] }; }
+      if (p === "/api/backup") { if (!ARTIFACT) await Sync.run(); return { ok: true, backups: [] }; }
       if (p === "/api/update") return Actions.dispatch({ aktion: "update" });
       if (p === "/api/request") {
         const t = String(body.title || "").trim();
@@ -770,13 +848,13 @@
   }
 
   window.AuraLocal = {
-    enabled, handle, init, ApiErr,
+    enabled, artifact: ARTIFACT, handle, init, ApiErr, storageInfo: () => Store.info(),
     sync: () => Sync.run(), syncInfo: () => Sync.info(),
     setGitHub(token, repo) { ls.set("aura.gh_token", token || null); ls.set("aura.gh_repo", repo || null); SYNC.base_sha = SYNC.base_sha || null; },
     exportData: () => exportData(),
     reloadCatalog: () => loadCatalog(true).then(() => { allCache = null; }),
   };
-  if (enabled) {
+  if (enabled && !ARTIFACT) {
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden" && SYNC.dirty) Sync.run().catch(() => {});
       if (document.visibilityState === "visible" && ready) Sync.schedule(300);
